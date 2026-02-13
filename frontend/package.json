@@ -1,7 +1,7 @@
 {
-  "name": "frontend",
+  "name": "declatogo-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,10 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.5.25"
+    "axios": "^1.13.5",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.28",
+    "vue-i18n": "^11.2.8",
+    "vue-router": "^5.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.2",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
     "vite": "^7.3.1"
   }
 }
