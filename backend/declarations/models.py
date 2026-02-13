@@ -164,6 +164,11 @@ class Declaration(models.Model):
         max_length=200,
         verbose_name="Nom figurant sur la pièce"
     )
+    nom_declarant    = models.CharField(max_length=100, blank=True, null=True, verbose_name="Nom de famille (sur la pièce)")
+    prenom_declarant = models.CharField(max_length=100, blank=True, null=True, verbose_name="Prénom(s) (sur la pièce)")
+    date_naissance   = models.DateField(blank=True, null=True, verbose_name="Date de naissance")
+    lieu_naissance   = models.CharField(max_length=200, blank=True, null=True, verbose_name="Lieu de naissance")
+    profession       = models.CharField(max_length=100, blank=True, null=True, verbose_name="Profession")
     
     user = models.ForeignKey(
         User,

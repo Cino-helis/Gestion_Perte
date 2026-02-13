@@ -31,9 +31,10 @@ body {
 
 /* ── 5. Composants ── */
 @layer components {
+
+  /* Navigation mobile */
   .nav-mobile-link {
     @apply block text-sm font-medium px-4 py-3 rounded-lg transition-all no-underline;
-    /* Correction opacité pour Tailwind v3 */
     color: rgba(255, 255, 255, 0.85);
   }
   .nav-mobile-link:hover {
@@ -41,12 +42,111 @@ body {
     color: #ffffff;
   }
 
-  /* Vous pourrez rajouter .btn-primary, .card, etc. ici plus tard */
+  /* Bouton principal (vert → action primaire) */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 bg-or text-vert font-bold
+           px-6 py-3 rounded-[10px] border-none cursor-pointer
+           transition-all hover:-translate-y-0.5 hover:shadow-lg;
+    background-color: #D4A017;
+    color: #005A3C;
+  }
+  .btn-primary:hover {
+    background-color: #e8b220;
+    box-shadow: 0 8px 24px rgba(212,160,23,.35);
+  }
+
+  /* Champ de formulaire standard */
+  .form-input {
+    @apply w-full border border-gray-200 rounded-[10px] px-4 py-3
+           text-sm font-sans bg-white text-texte
+           outline-none transition-all
+           focus:border-vert focus:ring-2 focus:ring-vert/15
+           placeholder:text-gray-400;
+  }
+
+  /* Carte (card) */
+  .card {
+    @apply bg-white rounded-[16px] p-8 shadow-card border border-gray-100;
+  }
+
+  /* Etiquette de champ */
+  .form-label {
+    @apply block text-xs font-semibold text-texte/70 mb-1.5 tracking-wide uppercase;
+  }
+
+  /* Message d'erreur inline */
+  .form-error {
+    @apply text-rouge text-xs mt-1 flex items-center gap-1;
+  }
+
+  /* Badge statut */
+  .badge {
+    @apply inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full;
+  }
+  .badge-waiting  { @apply bg-yellow-100 text-yellow-700; }
+  .badge-valid    { @apply bg-blue-100 text-blue-700; }
+  .badge-found    { @apply bg-green-100 text-green-700; }
+  .badge-returned { @apply bg-emerald-100 text-emerald-800; }
+  .badge-rejected { @apply bg-red-100 text-rouge; }
 }
 
-/* ── 6. Animations ── */
+/* ── 6. Motif Kente (CSS pur) ── */
+/* Inspiré du tissu kente togolais — damier géométrique doré */
+.kente-bg {
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 20px,
+      rgba(212,160,23,.08) 20px,
+      rgba(212,160,23,.08) 21px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 20px,
+      rgba(212,160,23,.08) 20px,
+      rgba(212,160,23,.08) 21px
+    ),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,.03) 0px,
+      rgba(255,255,255,.03) 10px,
+      transparent 10px,
+      transparent 20px
+    );
+}
+
+/* ── 7. Animations ── */
 .fade-up { animation: fadeUp .5s ease both; }
+.delay-200 { animation-delay: .2s; }
+.delay-400 { animation-delay: .4s; }
+
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin-slow { animation: spin-slow 20s linear infinite; }
+
+/* Barre de chargement animée */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ── 8. Scrollbar personnalisée ── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,90,60,.25); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,90,60,.45); }

@@ -11,7 +11,8 @@ import router from '../router'
 
 // ── Instance Axios principale ──────────────────────────────────────
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
+  // Note le '/' à la fin pour faciliter la concaténation
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/',
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -53,6 +54,7 @@ api.interceptors.response.use(
 
     // Si 401 et ce n'est pas déjà une tentative de refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
+      
       if (isRefreshing) {
         // Mettre la requête en file d'attente
         return new Promise((resolve, reject) => {
@@ -75,8 +77,11 @@ api.interceptors.response.use(
       }
 
       try {
+        // On utilise axios brut ici pour éviter une boucle infinie d'intercepteurs
+        // Attention à l'URL complète ici
+        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/'
         const { data } = await axios.post(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/token/refresh/`,
+          `${baseURL}token/refresh/`, 
           { refresh: refreshToken }
         )
 
@@ -109,46 +114,48 @@ function _logout() {
 
 
 // ── Endpoints nommés ───────────────────────────────────────────────
+// IMPORTANT : Pas de slash (/) au début des chaînes pour utiliser le baseURL correctement
+
 export const authAPI = {
-  login:   (data)       => axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/token/`, data),
-  refresh: (data)       => axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/token/refresh/`, data),
-  register:(data)       => api.post('/register/', data),
-  profile: ()           => api.get('/profile/'),
-  updateProfile:(data)  => api.put('/profile/', data),
+  login:    (data) => api.post('token/', data),         // Route: /api/token/
+  refresh:  (data) => api.post('token/refresh/', data), // Route: /api/token/refresh/
+  register: (data) => api.post('register/', data),      // Route: /api/register/
+  profile:  ()     => api.get('profile/'),              // Route: /api/profile/
+  updateProfile:(data) => api.put('profile/', data),
 }
 
 export const declarationsAPI = {
-  list:           (params) => api.get('/declarations/', { params }),
-  detail:         (id)     => api.get(`/declarations/${id}/`),
-  create:         (data)   => api.post('/declarations/', data, {
+  list:           (params) => api.get('declarations/', { params }),
+  detail:         (id)     => api.get(`declarations/${id}/`),
+  create:         (data)   => api.post('declarations/', data, {
     headers: { 'Content-Type': 'multipart/form-data' }  // Pour l'upload photo
   }),
-  update:         (id, data)   => api.patch(`/declarations/${id}/`, data),
-  delete:         (id)         => api.delete(`/declarations/${id}/`),
-  myDeclarations: ()           => api.get('/declarations/mes_declarations/'),
-  pertes:         ()           => api.get('/declarations/pertes/'),
-  trouvailles:    ()           => api.get('/declarations/trouvailles/'),
-  rechercher:     (data)       => api.post('/declarations/rechercher/', data),
-  changerStatut:  (id, data)   => api.patch(`/declarations/${id}/changer_statut/`, data),
-  downloadPDF:    (id)         => api.get(`/declarations/${id}/telecharger_recepisse/`, {
+  update:         (id, data)   => api.patch(`declarations/${id}/`, data),
+  delete:         (id)         => api.delete(`declarations/${id}/`),
+  myDeclarations: ()           => api.get('declarations/mes_declarations/'),
+  pertes:         ()           => api.get('declarations/pertes/'),
+  trouvailles:    ()           => api.get('declarations/trouvailles/'),
+  rechercher:     (data)       => api.post('declarations/rechercher/', data),
+  changerStatut:  (id, data)   => api.patch(`declarations/${id}/changer_statut/`, data),
+  downloadPDF:    (id)         => api.get(`declarations/${id}/telecharger_recepisse/`, {
     responseType: 'blob'
   }),
 }
 
 export const categoriesAPI = {
-  list:   () => api.get('/categories/'),
-  detail: (id) => api.get(`/categories/${id}/`),
+  list:   ()   => api.get('categories/'),
+  detail: (id) => api.get(`categories/${id}/`),
 }
 
 export const notificationsAPI = {
-  list:         ()   => api.get('/notifications/'),
-  nonLues:      ()   => api.get('/notifications/non_lues/'),
-  marquerLue:   (id) => api.post(`/notifications/${id}/marquer_lue/`),
-  toutMarquer:  ()   => api.post('/notifications/tout_marquer_lues/'),
+  list:         ()   => api.get('notifications/'),
+  nonLues:      ()   => api.get('notifications/non_lues/'),
+  marquerLue:   (id) => api.post(`notifications/${id}/marquer_lue/`),
+  toutMarquer:  ()   => api.post('notifications/tout_marquer_lues/'),
 }
 
 export const statsAPI = {
-  get: () => api.get('/statistiques/'),
+  get: () => api.get('statistiques/'),
 }
 
 export default api
