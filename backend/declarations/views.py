@@ -1,6 +1,5 @@
 """
 Vues de l'API REST
-Gèrent les requêtes HTTP et la logique métier
 """
 
 from rest_framework import viewsets, status, permissions
@@ -16,7 +15,9 @@ from .pdf_generator import generate_recepisse_pdf
 
 from .models import CategoriePiece, Declaration, Notification
 from .serializers import (
-    UserSerializer, UserProfileSerializer, CategoriePieceSerializer,
+    UserSerializer, UserProfileSerializer,
+    CreateAgentSerializer,
+    CategoriePieceSerializer,
     DeclarationListSerializer, DeclarationDetailSerializer,
     DeclarationCreateSerializer, NotificationSerializer,
     StatistiquesSerializer, RechercheCorrespondanceSerializer
@@ -31,10 +32,7 @@ User = get_user_model()
 # =============================================================================
 
 class RegisterView(APIView):
-    """
-    Vue pour l'inscription d'un nouvel utilisateur
-    POST /api/register/
-    """
+    """Inscription publique — crée UNIQUEMENT des comptes citoyens."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -49,22 +47,14 @@ class RegisterView(APIView):
 
 
 class UserProfileView(APIView):
-    """
-    Vue pour voir et modifier le profil de l'utilisateur connecté
-    GET/PUT /api/profile/
-    """
+    """Profil de l'utilisateur connecté. GET / PUT /api/profile/"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        serializer = UserProfileSerializer(request.user)
-        return Response(serializer.data)
+        return Response(UserProfileSerializer(request.user).data)
 
     def put(self, request):
-        serializer = UserProfileSerializer(
-            request.user,
-            data=request.data,
-            partial=True
-        )
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
@@ -72,13 +62,162 @@ class UserProfileView(APIView):
 
 
 # =============================================================================
+# GESTION DES AGENTS — RÉSERVÉ AUX ADMINISTRATEURS
+# =============================================================================
+
+class AgentManagementView(APIView):
+    """
+    GET  /api/admin/agents/   → liste agents
+    POST /api/admin/agents/   → créer un agent
+    """
+    permission_classes = [IsAdminOnly]
+
+    def get(self, request):
+        agents = User.objects.filter(role__in=['police', 'admin']).order_by('-date_creation')
+        return Response(UserProfileSerializer(agents, many=True).data)
+
+    def post(self, request):
+        serializer = CreateAgentSerializer(data=request.data)
+        if serializer.is_valid():
+            agent = serializer.save()
+            return Response({
+                'message': f"Agent '{agent.username}' créé avec succès.",
+                'agent': UserProfileSerializer(agent).data
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AgentDetailView(APIView):
+    """
+    PATCH  /api/admin/agents/<id>/  → modifier
+    DELETE /api/admin/agents/<id>/  → désactiver (soft-delete)
+    """
+    permission_classes = [IsAdminOnly]
+
+    def _get_agent(self, pk):
+        try:
+            return User.objects.get(pk=pk, role__in=['police', 'admin'])
+        except User.DoesNotExist:
+            return None
+
+    def patch(self, request, pk):
+        agent = self._get_agent(pk)
+        if not agent:
+            return Response({'error': 'Agent introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        if agent == request.user and request.data.get('role') == 'citoyen':
+            return Response(
+                {'error': 'Vous ne pouvez pas modifier votre propre rôle.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        serializer = UserProfileSerializer(agent, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        agent = self._get_agent(pk)
+        if not agent:
+            return Response({'error': 'Agent introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        if agent == request.user:
+            return Response(
+                {'error': 'Vous ne pouvez pas désactiver votre propre compte.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        agent.is_active = False
+        agent.save(update_fields=['is_active'])
+        return Response({'message': f"Le compte de '{agent.username}' a été désactivé."})
+
+
+# =============================================================================
+# GESTION COMPLÈTE DES UTILISATEURS — ADMIN UNIQUEMENT
+# =============================================================================
+
+class UserManagementView(APIView):
+    """
+    Liste TOUS les utilisateurs (citoyens + agents + admins).
+    GET /api/admin/users/?role=citoyen&search=jean
+    """
+    permission_classes = [IsAdminOnly]
+
+    def get(self, request):
+        qs = User.objects.all().order_by('-date_creation')
+
+        role = request.query_params.get('role', '').strip()
+        if role:
+            qs = qs.filter(role=role)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(username__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(email__icontains=search)
+            )
+
+        return Response(UserProfileSerializer(qs, many=True).data)
+
+
+class UserDetailAdminView(APIView):
+    """
+    Opérations sur un utilisateur quelconque (citoyen, agent, admin).
+
+    GET    /api/admin/users/<id>/  → détail
+    PATCH  /api/admin/users/<id>/  → modifier
+    DELETE /api/admin/users/<id>/  → suppression DÉFINITIVE
+    """
+    permission_classes = [IsAdminOnly]
+
+    def _get_user(self, pk):
+        try:
+            return User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        user = self._get_user(pk)
+        if not user:
+            return Response({'error': 'Utilisateur introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(UserProfileSerializer(user).data)
+
+    def patch(self, request, pk):
+        user = self._get_user(pk)
+        if not user:
+            return Response({'error': 'Utilisateur introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        if user == request.user:
+            return Response(
+                {'error': 'Modifiez votre propre compte depuis /api/profile/.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        serializer = UserProfileSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        user = self._get_user(pk)
+        if not user:
+            return Response({'error': 'Utilisateur introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        if user == request.user:
+            return Response(
+                {'error': 'Vous ne pouvez pas supprimer votre propre compte.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        username = user.username
+        user.delete()   # suppression définitive en base (cascade sur déclarations/notifs)
+        return Response(
+            {'message': f"L'utilisateur « {username} » a été supprimé définitivement."},
+            status=status.HTTP_200_OK
+        )
+
+
+# =============================================================================
 # CATÉGORIES
 # =============================================================================
 
 class CategoriePieceViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet pour les catégories de pièces (lecture seule pour tous)
-    """
     queryset = CategoriePiece.objects.filter(actif=True)
     serializer_class = CategoriePieceSerializer
     permission_classes = [permissions.AllowAny]
@@ -89,9 +228,6 @@ class CategoriePieceViewSet(viewsets.ReadOnlyModelViewSet):
 # =============================================================================
 
 class DeclarationViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet pour les déclarations (CRUD complet)
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
@@ -107,7 +243,7 @@ class DeclarationViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'list':
             return DeclarationListSerializer
-        elif self.action == 'create':
+        if self.action == 'create':
             return DeclarationCreateSerializer
         return DeclarationDetailSerializer
 
@@ -115,25 +251,25 @@ class DeclarationViewSet(viewsets.ModelViewSet):
         if self.action == 'changer_statut':
             return [IsAdminOrPolice()]
         if self.action == 'destroy':
-            return [IsAdminOnly()]
+            return [IsAdminOnly()]      # ← seul l'admin supprime
         return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
-        """L'utilisateur est injecté dans DeclarationCreateSerializer.create()"""
         serializer.save()
 
-    # ------------------------------------------------------------------
-    # PDF
-    # ------------------------------------------------------------------
+    def destroy(self, request, *args, **kwargs):
+        """Suppression DÉFINITIVE d'une déclaration — admin uniquement."""
+        declaration = self.get_object()
+        numero = declaration.numero_recepisse
+        declaration.delete()
+        return Response(
+            {'message': f"La déclaration « {numero} » a été supprimée définitivement."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['get'])
     def telecharger_recepisse(self, request, pk=None):
-        """
-        Génère et retourne le récépissé PDF.
-        GET /api/declarations/{id}/telecharger_recepisse/
-        """
         declaration = self.get_object()
-
         if request.user.role not in ['admin', 'police']:
             if declaration.user != request.user:
                 return Response(
@@ -144,151 +280,96 @@ class DeclarationViewSet(viewsets.ModelViewSet):
             pdf_buffer = generate_recepisse_pdf(declaration)
         except Exception as e:
             return Response(
-                {'error': f'Erreur lors de la génération du PDF : {str(e)}'},
+                {'error': f'Erreur génération PDF : {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
         return FileResponse(
-            pdf_buffer,
-            as_attachment=True,
+            pdf_buffer, as_attachment=True,
             filename=f"recepisse_{declaration.numero_recepisse}.pdf",
             content_type='application/pdf'
         )
 
-    # ------------------------------------------------------------------
-    # Actions personnalisées
-    # ------------------------------------------------------------------
-
     @action(detail=False, methods=['get'])
     def mes_declarations(self, request):
-        """
-        Déclarations de l'utilisateur connecté
-        GET /api/declarations/mes_declarations/
-        """
-        declarations = Declaration.objects.filter(user=request.user).select_related('categorie')
-        serializer = DeclarationListSerializer(declarations, many=True)
-        return Response(serializer.data)
+        qs = Declaration.objects.filter(user=request.user).select_related('categorie')
+        return Response(DeclarationListSerializer(qs, many=True).data)
 
     @action(detail=False, methods=['get'])
     def pertes(self, request):
-        """GET /api/declarations/pertes/"""
-        pertes = self.get_queryset().filter(type_declaration='PERTE')
-        serializer = DeclarationListSerializer(pertes, many=True)
-        return Response(serializer.data)
+        return Response(DeclarationListSerializer(
+            self.get_queryset().filter(type_declaration='PERTE'), many=True
+        ).data)
 
     @action(detail=False, methods=['get'])
     def trouvailles(self, request):
-        """GET /api/declarations/trouvailles/"""
-        trouvailles = self.get_queryset().filter(type_declaration='TROUVAILLE')
-        serializer = DeclarationListSerializer(trouvailles, many=True)
-        return Response(serializer.data)
+        return Response(DeclarationListSerializer(
+            self.get_queryset().filter(type_declaration='TROUVAILLE'), many=True
+        ).data)
 
     @action(detail=False, methods=['post'])
     def rechercher(self, request):
-        """
-        Recherche de correspondances entre pertes et trouvailles.
-        Cherche dans numero_piece, nom_sur_piece, nom_declarant et prenom_declarant.
-
-        POST /api/declarations/rechercher/
-        Body: {
-          "numero_piece":   "TG20240001",   ← optionnel
-          "nom_declarant":  "AKODJO",       ← optionnel
-          "prenom_declarant": "Jean",       ← optionnel
-          "nom_sur_piece":  "AKODJO Jean",  ← optionnel (rétrocompat)
-          "categorie":      1               ← optionnel
-        }
-        """
         serializer = RechercheCorrespondanceSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        numero_piece     = serializer.validated_data.get('numero_piece', '').strip()
-        nom_sur_piece    = serializer.validated_data.get('nom_sur_piece', '').strip()
-        nom_declarant    = serializer.validated_data.get('nom_declarant', '').strip()
-        prenom_declarant = serializer.validated_data.get('prenom_declarant', '').strip()
-        categorie_id     = serializer.validated_data.get('categorie')
+        d = serializer.validated_data
+        numero_piece     = d.get('numero_piece', '').strip()
+        nom_sur_piece    = d.get('nom_sur_piece', '').strip()
+        nom_declarant    = d.get('nom_declarant', '').strip()
+        prenom_declarant = d.get('prenom_declarant', '').strip()
+        categorie_id     = d.get('categorie')
 
-        # Base : trouvailles validées uniquement
-        query = Q(type_declaration='TROUVAILLE', statut='VALIDE')
-
-        # Au moins un critère doit être fourni
-        has_criteria = any([numero_piece, nom_sur_piece, nom_declarant, prenom_declarant])
-        if not has_criteria:
+        if not any([numero_piece, nom_sur_piece, nom_declarant, prenom_declarant]):
             return Response(
                 {'error': 'Fournissez au moins un critère de recherche.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Numéro de pièce
+        query = Q(type_declaration='TROUVAILLE', statut='VALIDE')
         if numero_piece:
             query &= Q(numero_piece__icontains=numero_piece)
-
-        # Nom — cherche dans nom_declarant ET nom_sur_piece (rétrocompat)
         if nom_declarant:
-            query &= (
-                Q(nom_declarant__icontains=nom_declarant) |
-                Q(nom_sur_piece__icontains=nom_declarant)
-            )
-
-        # Prénom — cherche dans prenom_declarant ET nom_sur_piece (rétrocompat)
+            query &= (Q(nom_declarant__icontains=nom_declarant) | Q(nom_sur_piece__icontains=nom_declarant))
         if prenom_declarant:
-            query &= (
-                Q(prenom_declarant__icontains=prenom_declarant) |
-                Q(nom_sur_piece__icontains=prenom_declarant)
-            )
-
-        # nom_sur_piece complet (ancien champ — rétrocompatibilité)
+            query &= (Q(prenom_declarant__icontains=prenom_declarant) | Q(nom_sur_piece__icontains=prenom_declarant))
         if nom_sur_piece and not nom_declarant and not prenom_declarant:
             query &= Q(nom_sur_piece__icontains=nom_sur_piece)
-
-        # Catégorie
         if categorie_id:
             query &= Q(categorie_id=categorie_id)
 
-        correspondances = Declaration.objects.filter(query).select_related('categorie', 'user')
-        result_serializer = DeclarationListSerializer(correspondances, many=True)
-
+        qs = Declaration.objects.filter(query).select_related('categorie', 'user')
         return Response({
-            'nombre_resultats': correspondances.count(),
-            'correspondances':  result_serializer.data,
+            'nombre_resultats': qs.count(),
+            'correspondances':  DeclarationListSerializer(qs, many=True).data,
         })
 
     @action(detail=True, methods=['patch'])
     def changer_statut(self, request, pk=None):
-        """
-        Permet à un admin ou agent de police de changer le statut.
-        PATCH /api/declarations/{id}/changer_statut/
-        Body: {"statut": "VALIDE", "remarques": "..."}
-        """
         declaration = self.get_object()
         nouveau_statut = request.data.get('statut')
         remarques = request.data.get('remarques', '')
 
         if nouveau_statut not in dict(Declaration.STATUT_CHOICES):
             return Response(
-                {'error': f"Statut invalide. Valeurs acceptées : {list(dict(Declaration.STATUT_CHOICES).keys())}"},
+                {'error': f"Statut invalide. Valeurs : {list(dict(Declaration.STATUT_CHOICES).keys())}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        ancien_statut = declaration.get_statut_display()
+        ancien = declaration.get_statut_display()
         declaration.statut = nouveau_statut
         if remarques:
             declaration.remarques_admin = remarques
         declaration.save()
 
         Notification.objects.create(
-            user=declaration.user,
-            declaration=declaration,
+            user=declaration.user, declaration=declaration,
             type_notification='STATUT',
             titre=f"Changement de statut : {declaration.numero_recepisse}",
             message=(
-                f"Votre déclaration est passée de '{ancien_statut}' "
-                f"à '{declaration.get_statut_display()}'. {remarques}"
+                f"Votre déclaration est passée de « {ancien} » "
+                f"à « {declaration.get_statut_display()} ». {remarques}"
             )
         )
-
-        serializer = DeclarationDetailSerializer(declaration)
-        return Response(serializer.data)
+        return Response(DeclarationDetailSerializer(declaration).data)
 
 
 # =============================================================================
@@ -296,7 +377,6 @@ class DeclarationViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class NotificationViewSet(viewsets.ModelViewSet):
-    """ViewSet pour les notifications"""
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -305,68 +385,51 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def non_lues(self, request):
-        """GET /api/notifications/non_lues/"""
-        notifications = self.get_queryset().filter(lue=False)
-        serializer = self.get_serializer(notifications, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(
+            self.get_queryset().filter(lue=False), many=True
+        ).data)
 
     @action(detail=True, methods=['post'])
     def marquer_lue(self, request, pk=None):
-        """POST /api/notifications/{id}/marquer_lue/"""
-        notification = self.get_object()
-        notification.lue = True
-        notification.save()
+        notif = self.get_object()
+        notif.lue = True
+        notif.save()
         return Response({'status': 'Notification marquée comme lue'})
 
     @action(detail=False, methods=['post'])
     def tout_marquer_lues(self, request):
-        """POST /api/notifications/tout_marquer_lues/"""
         count = self.get_queryset().update(lue=True)
         return Response({'status': f'{count} notification(s) marquée(s) comme lue(s)'})
 
 
 # =============================================================================
-# STATISTIQUES (DASHBOARD ADMIN)
+# STATISTIQUES
 # =============================================================================
 
 class StatistiquesView(APIView):
-    """
-    Statistiques pour le dashboard admin/police
-    GET /api/statistiques/
-    """
     permission_classes = [IsAdminOrPolice]
 
     def get(self, request):
-        total_declarations = Declaration.objects.count()
-        total_pertes       = Declaration.objects.filter(type_declaration='PERTE').count()
-        total_trouvailles  = Declaration.objects.filter(type_declaration='TROUVAILLE').count()
-
-        en_attente = Declaration.objects.filter(statut='EN_ATTENTE').count()
-        validees   = Declaration.objects.filter(statut='VALIDE').count()
-        retrouvees = Declaration.objects.filter(statut='RETROUVE').count()
-        restituees = Declaration.objects.filter(statut='RESTITUE').count()
-
         date_limite = timezone.now() - timedelta(days=7)
-        declarations_recentes = Declaration.objects.filter(
-            date_declaration__gte=date_limite
-        ).order_by('-date_declaration')[:10]
-
-        categories_populaires = CategoriePiece.objects.annotate(
-            nombre=Count('declarations')
-        ).order_by('-nombre')[:5].values('libelle', 'nombre')
-
         data = {
-            'total_declarations':   total_declarations,
-            'total_pertes':         total_pertes,
-            'total_trouvailles':    total_trouvailles,
-            'en_attente':           en_attente,
-            'validees':             validees,
-            'retrouvees':           retrouvees,
-            'restituees':           restituees,
+            'total_declarations':    Declaration.objects.count(),
+            'total_pertes':          Declaration.objects.filter(type_declaration='PERTE').count(),
+            'total_trouvailles':     Declaration.objects.filter(type_declaration='TROUVAILLE').count(),
+            'en_attente':            Declaration.objects.filter(statut='EN_ATTENTE').count(),
+            'validees':              Declaration.objects.filter(statut='VALIDE').count(),
+            'retrouvees':            Declaration.objects.filter(statut='RETROUVE').count(),
+            'restituees':            Declaration.objects.filter(statut='RESTITUE').count(),
+            'total_utilisateurs':    User.objects.count(),
+            'total_citoyens':        User.objects.filter(role='citoyen').count(),
+            'total_agents':          User.objects.filter(role__in=['police', 'admin']).count(),
             'declarations_recentes': DeclarationListSerializer(
-                declarations_recentes, many=True
+                Declaration.objects.filter(date_declaration__gte=date_limite)
+                           .order_by('-date_declaration')[:10],
+                many=True
             ).data,
-            'categories_populaires': list(categories_populaires),
+            'categories_populaires': list(
+                CategoriePiece.objects.annotate(nombre=Count('declarations'))
+                              .order_by('-nombre')[:5].values('libelle', 'nombre')
+            ),
         }
-
         return Response(data)

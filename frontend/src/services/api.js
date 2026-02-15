@@ -1,107 +1,64 @@
 /**
- * Client HTTP Axios pour l'API Django REST
- * - Base URL configurable via variable d'environnement
- * - Intercepteur : injecte automatiquement le token JWT dans chaque requête
- * - Intercepteur : gère le refresh automatique du token expiré (401)
- * - Intercepteur : redirige vers /login si le refresh échoue
+ * Client HTTP Axios — DéclaTogo
  */
 
 import axios from 'axios'
 import router from '../router'
 
-// ── Instance Axios principale ──────────────────────────────────────
 const api = axios.create({
-  // Note le '/' à la fin pour faciliter la concaténation
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/',
   timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept':       'application/json',
-  },
+  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
 })
 
-
-// ── Intercepteur REQUEST : injecter le token JWT ───────────────────
+// ── Intercepteur REQUEST ──────────────────────────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`
     return config
   },
   (error) => Promise.reject(error)
 )
 
-
-// ── Intercepteur RESPONSE : gérer les erreurs 401 ─────────────────
+// ── Intercepteur RESPONSE — refresh JWT ──────────────────────────
 let isRefreshing = false
-let failedQueue  = []  // Requêtes en attente pendant le refresh
+let failedQueue  = []
 
 const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) prom.reject(error)
-    else       prom.resolve(token)
-  })
+  failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token)))
   failedQueue = []
 }
 
 api.interceptors.response.use(
-  (response) => response,
-
+  (res) => res,
   async (error) => {
-    const originalRequest = error.config
-
-    // Si 401 et ce n'est pas déjà une tentative de refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      
+    const orig = error.config
+    if (error.response?.status === 401 && !orig._retry) {
       if (isRefreshing) {
-        // Mettre la requête en file d'attente
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject })
-        }).then((token) => {
-          originalRequest.headers.Authorization = `Bearer ${token}`
-          return api(originalRequest)
-        }).catch((err) => Promise.reject(err))
+        return new Promise((resolve, reject) => failedQueue.push({ resolve, reject }))
+          .then((token) => { orig.headers.Authorization = `Bearer ${token}`; return api(orig) })
+          .catch((err) => Promise.reject(err))
       }
-
-      originalRequest._retry = true
-      isRefreshing = true
-
-      const refreshToken = localStorage.getItem('refresh_token')
-
-      if (!refreshToken) {
-        // Pas de refresh token → déconnexion
-        _logout()
-        return Promise.reject(error)
-      }
-
+      orig._retry   = true
+      isRefreshing  = true
+      const refresh = localStorage.getItem('refresh_token')
+      if (!refresh) { _logout(); return Promise.reject(error) }
       try {
-        // On utilise axios brut ici pour éviter une boucle infinie d'intercepteurs
-        // Attention à l'URL complète ici
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/'
-        const { data } = await axios.post(
-          `${baseURL}token/refresh/`, 
-          { refresh: refreshToken }
-        )
-
-        const newAccess = data.access
-        localStorage.setItem('access_token', newAccess)
-
-        processQueue(null, newAccess)
-        originalRequest.headers.Authorization = `Bearer ${newAccess}`
-        return api(originalRequest)
-
-      } catch (refreshError) {
-        processQueue(refreshError, null)
+        const base = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/'
+        const { data } = await axios.post(`${base}token/refresh/`, { refresh })
+        localStorage.setItem('access_token', data.access)
+        processQueue(null, data.access)
+        orig.headers.Authorization = `Bearer ${data.access}`
+        return api(orig)
+      } catch (e) {
+        processQueue(e, null)
         _logout()
-        return Promise.reject(refreshError)
-
+        return Promise.reject(e)
       } finally {
         isRefreshing = false
       }
     }
-
     return Promise.reject(error)
   }
 )
@@ -112,50 +69,71 @@ function _logout() {
   router.push({ name: 'login' })
 }
 
-
-// ── Endpoints nommés ───────────────────────────────────────────────
-// IMPORTANT : Pas de slash (/) au début des chaînes pour utiliser le baseURL correctement
+// ═════════════════════════════════════════════════════════════════
+// Endpoints
+// ═════════════════════════════════════════════════════════════════
 
 export const authAPI = {
-  login:    (data) => api.post('token/', data),         // Route: /api/token/
-  refresh:  (data) => api.post('token/refresh/', data), // Route: /api/token/refresh/
-  register: (data) => api.post('register/', data),      // Route: /api/register/
-  profile:  ()     => api.get('profile/'),              // Route: /api/profile/
-  updateProfile:(data) => api.put('profile/', data),
+  login:         (d) => api.post('token/', d),
+  refresh:       (d) => api.post('token/refresh/', d),
+  register:      (d) => api.post('register/', d),
+  profile:       ()  => api.get('profile/'),
+  updateProfile: (d) => api.put('profile/', d),
 }
 
 export const declarationsAPI = {
-  list:           (params) => api.get('declarations/', { params }),
-  detail:         (id)     => api.get(`declarations/${id}/`),
-  create:         (data)   => api.post('declarations/', data, {
-    headers: { 'Content-Type': 'multipart/form-data' }  // Pour l'upload photo
+  list:          (params)   => api.get('declarations/', { params }),
+  detail:        (id)       => api.get(`declarations/${id}/`),
+  create:        (data)     => api.post('declarations/', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
   }),
-  update:         (id, data)   => api.patch(`declarations/${id}/`, data),
-  delete:         (id)         => api.delete(`declarations/${id}/`),
-  myDeclarations: ()           => api.get('declarations/mes_declarations/'),
-  pertes:         ()           => api.get('declarations/pertes/'),
-  trouvailles:    ()           => api.get('declarations/trouvailles/'),
-  rechercher:     (data)       => api.post('declarations/rechercher/', data),
-  changerStatut:  (id, data)   => api.patch(`declarations/${id}/changer_statut/`, data),
-  downloadPDF:    (id)         => api.get(`declarations/${id}/telecharger_recepisse/`, {
-    responseType: 'blob'
+  update:        (id, data) => api.patch(`declarations/${id}/`, data),
+  /** Suppression définitive — admin uniquement */
+  delete:        (id)       => api.delete(`declarations/${id}/`),
+  myDeclarations:()         => api.get('declarations/mes_declarations/'),
+  pertes:        ()         => api.get('declarations/pertes/'),
+  trouvailles:   ()         => api.get('declarations/trouvailles/'),
+  rechercher:    (data)     => api.post('declarations/rechercher/', data),
+  changerStatut: (id, data) => api.patch(`declarations/${id}/changer_statut/`, data),
+  downloadPDF:   (id)       => api.get(`declarations/${id}/telecharger_recepisse/`, {
+    responseType: 'blob',
   }),
 }
 
 export const categoriesAPI = {
-  list:   ()   => api.get('categories/'),
+  list:   () => api.get('categories/'),
   detail: (id) => api.get(`categories/${id}/`),
 }
 
 export const notificationsAPI = {
-  list:         ()   => api.get('notifications/'),
-  nonLues:      ()   => api.get('notifications/non_lues/'),
-  marquerLue:   (id) => api.post(`notifications/${id}/marquer_lue/`),
-  toutMarquer:  ()   => api.post('notifications/tout_marquer_lues/'),
+  list:        ()   => api.get('notifications/'),
+  nonLues:     ()   => api.get('notifications/non_lues/'),
+  marquerLue:  (id) => api.post(`notifications/${id}/marquer_lue/`),
+  toutMarquer: ()   => api.post('notifications/tout_marquer_lues/'),
 }
 
 export const statsAPI = {
   get: () => api.get('statistiques/'),
+}
+
+// ── Gestion agents (admin) ────────────────────────────────────────
+export const agentsAPI = {
+  list:   ()         => api.get('admin/agents/'),
+  create: (data)     => api.post('admin/agents/', data),
+  update: (id, data) => api.patch(`admin/agents/${id}/`, data),
+  delete: (id)       => api.delete(`admin/agents/${id}/`),
+}
+
+// ── Gestion utilisateurs (admin) — NOUVEAU ───────────────────────
+export const usersAPI = {
+  /** Liste tous les utilisateurs (filtres : role, search) */
+  list:   (params)   => api.get('admin/users/', { params }),
+  /** Détail d'un utilisateur */
+  detail: (id)       => api.get(`admin/users/${id}/`),
+  /** Modifier (is_active, …) */
+  update: (id, data) => api.patch(`admin/users/${id}/`, data),
+  /** Suppression DÉFINITIVE */
+  delete: (id)       => api.delete(`admin/users/${id}/`),
 }
 
 export default api

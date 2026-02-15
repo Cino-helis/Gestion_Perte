@@ -8,103 +8,122 @@ const router    = useRouter()
 const authStore = useAuthStore()
 
 /* ══ État ══ */
-const declarations  = ref([])
-const loading       = ref(true)
-const apiError      = ref(null)
-const search        = ref('')
-const filterType    = ref('ALL')
-const filterStatut  = ref('ALL')
-const modalOpen     = ref(false)
-const selectedDecl  = ref(null)
-const newStatut     = ref('')
-const remarques     = ref('')
-const saving        = ref(false)
-const saveSuccess   = ref(null)
+const declarations = ref([])
+const loading      = ref(true)
+const apiError     = ref(null)
+const apiSuccess   = ref(null)
+const search       = ref('')
+const filterStatut = ref('')
+const filterType   = ref('')
+
+/* ══ Modale changement de statut ══ */
+const statutModal    = ref(false)
+const selectedDecl   = ref(null)
+const nouveauStatut  = ref('')
+const remarques      = ref('')
+const changingStatut = ref(false)
+
+/* ══ Modale suppression ══ */
+const deleteModal  = ref(false)
+const declToDelete = ref(null)
+const deleting     = ref(false)
 
 /* ══ Chargement ══ */
-onMounted(async () => {
-  await loadDeclarations()
-})
+onMounted(loadDeclarations)
 
-const loadDeclarations = async () => {
-  loading.value = true
+async function loadDeclarations() {
+  loading.value  = true
+  apiError.value = null
   try {
     const { data } = await declarationsAPI.list()
-    declarations.value = data.results ?? data
-  } catch {
+    declarations.value = data
+  } catch (e) {
     apiError.value = 'Impossible de charger les déclarations.'
   } finally {
     loading.value = false
   }
 }
 
-/* ══ Filtrage + recherche ══ */
+/* ══ Filtrage ══ */
 const filtered = computed(() => {
   let list = declarations.value
-  const q  = search.value.toLowerCase().trim()
-
+  if (filterStatut.value) list = list.filter(d => d.statut === filterStatut.value)
+  if (filterType.value)   list = list.filter(d => d.type_declaration === filterType.value)
+  const q = search.value.toLowerCase().trim()
   if (q) list = list.filter(d =>
-    d.numero_piece.toLowerCase().includes(q) ||
-    d.nom_sur_piece.toLowerCase().includes(q) ||
+    (d.numero_piece   || '').toLowerCase().includes(q) ||
+    (d.nom_sur_piece  || '').toLowerCase().includes(q) ||
     (d.numero_recepisse || '').toLowerCase().includes(q) ||
-    (d.declarant || '').toLowerCase().includes(q)
+    (d.declarant      || '').toLowerCase().includes(q)
   )
-  if (filterType.value !== 'ALL')
-    list = list.filter(d => d.type_declaration === filterType.value)
-  if (filterStatut.value !== 'ALL')
-    list = list.filter(d => d.statut === filterStatut.value)
-
   return list
 })
 
-/* ══ Modal changement de statut ══ */
-const openModal = (decl) => {
-  selectedDecl.value = decl
-  newStatut.value    = decl.statut
-  remarques.value    = ''
-  saveSuccess.value  = null
-  apiError.value     = null
-  modalOpen.value    = true
-}
-const closeModal = () => {
-  modalOpen.value   = false
-  selectedDecl.value = null
+/* ══ Changement de statut ══ */
+function openStatut(decl) {
+  selectedDecl.value  = decl
+  nouveauStatut.value = decl.statut
+  remarques.value     = ''
+  statutModal.value   = true
 }
 
-const applyStatut = async () => {
-  if (!selectedDecl.value || !newStatut.value) return
-  saving.value = true
+async function handleChangerStatut() {
+  if (!selectedDecl.value) return
+  changingStatut.value = true
+  apiError.value       = null
   try {
     const { data } = await declarationsAPI.changerStatut(selectedDecl.value.id, {
-      statut:   newStatut.value,
+      statut: nouveauStatut.value,
       remarques: remarques.value,
     })
-    // Mettre à jour dans la liste locale
     const idx = declarations.value.findIndex(d => d.id === data.id)
     if (idx !== -1) {
-      declarations.value[idx] = {
-        ...declarations.value[idx],
-        statut: data.statut,
-      }
+      declarations.value[idx].statut        = data.statut
+      declarations.value[idx].statut_display = data.statut_display
     }
-    selectedDecl.value.statut = data.statut
-    saveSuccess.value = 'Statut mis à jour avec succès !'
-    setTimeout(closeModal, 1200)
+    apiSuccess.value  = `✅ Statut mis à jour pour ${selectedDecl.value.numero_recepisse}`
+    statutModal.value = false
+    selectedDecl.value = null
+    setTimeout(() => { apiSuccess.value = null }, 4000)
   } catch (e) {
-    apiError.value = e.response?.data?.error || 'Erreur lors de la mise à jour.'
+    apiError.value = e.response?.data?.error || 'Erreur lors du changement de statut.'
   } finally {
-    saving.value = false
+    changingStatut.value = false
+  }
+}
+
+/* ══ Suppression ══ */
+function askDelete(decl) {
+  declToDelete.value = decl
+  deleteModal.value  = true
+}
+
+async function confirmDelete() {
+  if (!declToDelete.value) return
+  deleting.value = true
+  apiError.value = null
+  try {
+    await declarationsAPI.delete(declToDelete.value.id)
+    declarations.value = declarations.value.filter(d => d.id !== declToDelete.value.id)
+    apiSuccess.value = `✅ Déclaration « ${declToDelete.value.numero_recepisse} » supprimée.`
+    deleteModal.value  = false
+    declToDelete.value = null
+    setTimeout(() => { apiSuccess.value = null }, 4000)
+  } catch (e) {
+    apiError.value = e.response?.data?.error || 'Erreur lors de la suppression.'
+  } finally {
+    deleting.value = false
   }
 }
 
 /* ══ Helpers ══ */
 const statusConfig = {
-  EN_ATTENTE: { label: 'En attente',  color: '#D97706', bg: '#FEF3C7', icon: '⏳' },
-  VALIDE:     { label: 'Validé',      color: '#2563EB', bg: '#DBEAFE', icon: '✅' },
-  RETROUVE:   { label: 'Retrouvé',    color: '#059669', bg: '#D1FAE5', icon: '🎉' },
-  RESTITUE:   { label: 'Restitué',    color: '#065F46', bg: '#A7F3D0', icon: '🤝' },
-  REJETE:     { label: 'Rejeté',      color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
-  CLOTURE:    { label: 'Clôturé',     color: '#6B7280', bg: '#F3F4F6', icon: '🔒' },
+  EN_ATTENTE: { label: 'En attente', color: '#D97706', bg: '#FEF3C7' },
+  VALIDE:     { label: 'Validé',     color: '#2563EB', bg: '#DBEAFE' },
+  RETROUVE:   { label: 'Retrouvé',   color: '#059669', bg: '#D1FAE5' },
+  RESTITUE:   { label: 'Restitué',   color: '#065F46', bg: '#A7F3D0' },
+  REJETE:     { label: 'Rejeté',     color: '#DC2626', bg: '#FEE2E2' },
+  CLOTURE:    { label: 'Clôturé',    color: '#6B7280', bg: '#F3F4F6' },
 }
 const getStatus = (s) => statusConfig[s] || statusConfig.EN_ATTENTE
 
@@ -112,19 +131,7 @@ const formatDate = (d) => d
   ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
   : '—'
 
-const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
-
-const downloadPDF = async (decl) => {
-  try {
-    const { data } = await declarationsAPI.downloadPDF(decl.id)
-    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `recepisse_${decl.numero_recepisse}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {}
-}
+const statutOptions = Object.entries(statusConfig).map(([v, c]) => ({ value: v, label: c.label }))
 </script>
 
 <template>
@@ -134,264 +141,269 @@ const downloadPDF = async (decl) => {
   <!-- ══ En-tête ══ -->
   <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
     <div>
-      <div class="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full mb-3"
-        :style="{ backgroundColor: authStore.isAdmin ? '#FEE2E2' : '#DBEAFE',
-                  color: authStore.isAdmin ? '#C41230' : '#2563EB' }">
-        {{ authStore.isAdmin ? '🛡️ Administration' : '👮 Police' }}
-      </div>
       <h1 class="font-serif text-[1.9rem] font-bold text-[#1A2E22] mb-1">
         Gestion des déclarations
       </h1>
       <p class="text-sm text-gray-500">
-        {{ filtered.length }} déclaration{{ filtered.length !== 1 ? 's' : '' }} affichée{{ filtered.length !== 1 ? 's' : '' }}
-        sur {{ declarations.length }} au total
+        Validez, changez le statut ou supprimez des déclarations.
       </p>
     </div>
     <router-link :to="{ name: 'dashboard' }"
       class="inline-flex items-center gap-2 text-sm font-medium text-gray-500
-             bg-white border border-gray-200 px-5 py-3 rounded-xl no-underline
-             hover:bg-gray-50 transition-all">
+             bg-white border border-gray-200 px-4 py-2.5 rounded-xl no-underline
+             hover:bg-gray-50 transition-all self-start">
       ← Tableau de bord
     </router-link>
   </div>
 
-  <!-- ══ Erreur ══ -->
-  <div v-if="apiError && !modalOpen"
-    class="flex items-center gap-3 bg-red-50 border border-red-200
-           rounded-xl p-4 mb-5 text-sm text-rouge">
-    <span>⚠️</span><span>{{ apiError }}</span>
-    <button @click="apiError = null" class="ml-auto bg-transparent border-none cursor-pointer text-red-300">✕</button>
-  </div>
+  <!-- ══ Feedback ══ -->
+  <transition name="slide-msg">
+    <div v-if="apiSuccess"
+      class="flex items-center gap-3 bg-green-50 border border-green-200
+             rounded-xl p-4 mb-5 text-sm text-green-700">
+      {{ apiSuccess }}
+      <button @click="apiSuccess = null"
+        class="ml-auto bg-transparent border-none cursor-pointer text-green-400">✕</button>
+    </div>
+  </transition>
+  <transition name="slide-msg">
+    <div v-if="apiError && !statutModal && !deleteModal"
+      class="flex items-center gap-3 bg-red-50 border border-red-200
+             rounded-xl p-4 mb-5 text-sm text-rouge">
+      ⚠️ {{ apiError }}
+      <button @click="apiError = null"
+        class="ml-auto bg-transparent border-none cursor-pointer text-red-300">✕</button>
+    </div>
+  </transition>
 
-  <!-- ══ Barre de filtres ══ -->
-  <div class="bg-white rounded-2xl shadow-card border border-gray-100 p-4 mb-5
-              flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-
+  <!-- ══ Filtres ══ -->
+  <div class="flex flex-wrap gap-3 mb-5">
     <!-- Recherche -->
-    <div class="relative flex-1 min-w-[200px]">
-      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+    <div class="relative flex-1 min-w-48">
+      <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
       <input v-model="search" type="text"
-        placeholder="Rechercher par numéro, nom, récépissé…"
-        class="form-input pl-9 text-sm"/>
+        placeholder="N° pièce, nom, récépissé, déclarant…"
+        class="form-input pl-10 text-sm w-full" />
     </div>
-
-    <!-- Type -->
-    <div class="flex items-center gap-1 bg-gray-50 rounded-xl p-1 border border-gray-200">
-      <button v-for="opt in [
-        { key: 'ALL',        label: 'Tous' },
-        { key: 'PERTE',      label: '😟 Pertes' },
-        { key: 'TROUVAILLE', label: '🤲 Trouvailles' },
-      ]" :key="opt.key"
-        @click="filterType = opt.key"
-        :class="[
-          'text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer border-none',
-          filterType === opt.key
-            ? 'bg-[#005A3C] text-white shadow-sm'
-            : 'bg-transparent text-gray-500 hover:text-[#1A2E22]'
-        ]">
-        {{ opt.label }}
-      </button>
-    </div>
-
-    <!-- Statut -->
-    <select v-model="filterStatut"
-      class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-xs
-             text-gray-600 outline-none cursor-pointer">
-      <option value="ALL">Tous statuts</option>
-      <option v-for="s in statuts" :key="s.key" :value="s.key">
-        {{ s.icon }} {{ s.label }}
-      </option>
+    <!-- Filtre type -->
+    <select v-model="filterType" class="form-input text-sm w-auto">
+      <option value="">Tous les types</option>
+      <option value="PERTE">😟 Pertes</option>
+      <option value="TROUVAILLE">🤲 Trouvailles</option>
     </select>
-
-    <!-- Reset -->
-    <button v-if="search || filterType !== 'ALL' || filterStatut !== 'ALL'"
-      @click="search = ''; filterType = 'ALL'; filterStatut = 'ALL'"
-      class="text-xs text-rouge bg-transparent border-none cursor-pointer hover:underline">
-      ✕ Réinitialiser
-    </button>
+    <!-- Filtre statut -->
+    <select v-model="filterStatut" class="form-input text-sm w-auto">
+      <option value="">Tous les statuts</option>
+      <option v-for="s in statutOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+    </select>
   </div>
+
+  <!-- Compteur résultats -->
+  <p class="text-xs text-gray-400 mb-3">
+    {{ filtered.length }} déclaration(s) affichée(s) sur {{ declarations.length }}
+  </p>
 
   <!-- ══ Squelettes ══ -->
   <div v-if="loading" class="space-y-3">
-    <div v-for="i in 6" :key="i" class="skeleton h-20 rounded-2xl"></div>
+    <div v-for="i in 6" :key="i" class="skeleton h-24 rounded-2xl"></div>
   </div>
 
-  <!-- ══ Tableau ══ -->
+  <!-- ══ Vide ══ -->
   <div v-else-if="filtered.length === 0"
-    class="text-center py-16 bg-white rounded-2xl shadow-card border border-gray-100">
-    <div class="text-4xl mb-3">🗂️</div>
-    <p class="font-serif text-base font-bold text-[#1A2E22] mb-2">Aucune déclaration</p>
-    <p class="text-sm text-gray-500">Aucun résultat pour ces filtres.</p>
+    class="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-card">
+    <div class="text-4xl mb-3">📋</div>
+    <p class="font-serif text-base font-bold text-[#1A2E22] mb-1">Aucune déclaration</p>
+    <p class="text-sm text-gray-400">Modifiez vos filtres.</p>
   </div>
 
+  <!-- ══ Liste ══ -->
   <div v-else class="space-y-2">
     <transition-group name="list-item">
       <div v-for="decl in filtered" :key="decl.id"
-        class="bg-white rounded-2xl border border-gray-100 shadow-card
-               hover:shadow-card-lg transition-all">
-        <div class="p-4 flex flex-col sm:flex-row items-start gap-4">
+        class="bg-white rounded-2xl border border-gray-100 shadow-card transition-all">
 
-          <!-- Icône -->
-          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
-            :style="{ backgroundColor: decl.type_declaration === 'PERTE' ? '#FEE2E2' : '#E8F4F0' }">
+        <div class="p-4 flex items-start gap-4 flex-wrap">
+
+          <!-- Icône type -->
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+            :style="{
+              backgroundColor: decl.type_declaration === 'PERTE' ? '#FEE2E2' : '#E8F4F0'
+            }">
             {{ decl.type_declaration === 'PERTE' ? '😟' : '🤲' }}
           </div>
 
-          <!-- Infos principales -->
+          <!-- Infos déclaration -->
           <div class="flex-1 min-w-0">
-            <div class="flex items-start justify-between gap-2 flex-wrap">
-              <div>
-                <span class="font-mono font-bold text-[#005A3C] text-sm tracking-wider">
-                  {{ decl.numero_piece }}
-                </span>
-                <span class="mx-2 text-gray-300">·</span>
-                <span class="text-sm font-semibold text-[#1A2E22]">
-                  {{ decl.nom_sur_piece }}
-                </span>
-              </div>
-              <span class="badge text-xs flex-shrink-0"
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+              <span class="font-mono text-sm font-bold text-[#005A3C]">
+                {{ decl.numero_recepisse }}
+              </span>
+              <span class="badge text-[10px] font-bold"
+                :style="{ color: getStatus(decl.statut).color, backgroundColor: getStatus(decl.statut).bg }">
+                {{ getStatus(decl.statut).label }}
+              </span>
+              <span class="badge text-[10px] font-semibold"
                 :style="{
-                  color: getStatus(decl.statut).color,
-                  backgroundColor: getStatus(decl.statut).bg
+                  backgroundColor: decl.type_declaration === 'PERTE' ? '#FEE2E2' : '#E8F4F0',
+                  color: decl.type_declaration === 'PERTE' ? '#C41230' : '#005A3C'
                 }">
-                {{ getStatus(decl.statut).icon }} {{ getStatus(decl.statut).label }}
+                {{ decl.type_display || decl.type_declaration }}
               </span>
             </div>
-
-            <div class="flex items-center gap-3 text-xs text-gray-400 flex-wrap mt-1.5">
-              <span>👤 {{ decl.declarant }}</span>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-0.5 text-xs text-gray-500">
+              <span>📄 {{ decl.numero_piece || '—' }}</span>
+              <span>👤 {{ decl.nom_sur_piece || '—' }}</span>
+              <span>👥 {{ decl.declarant || '—' }}</span>
               <span>📅 {{ formatDate(decl.date_declaration) }}</span>
-              <span v-if="decl.categorie_nom">📁 {{ decl.categorie_nom }}</span>
-              <span class="font-mono text-[10px] text-gray-300">{{ decl.numero_recepisse }}</span>
             </div>
           </div>
 
           <!-- Actions -->
-          <div class="flex items-center gap-2 flex-shrink-0 sm:self-center">
-            <!-- Voir -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <!-- Voir le détail -->
             <button @click="router.push({ name: 'declaration-detail', params: { id: decl.id } })"
-              class="text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200
+              class="text-xs font-semibold text-[#005A3C] bg-[#E8F4F0] hover:bg-[#c8e8dc]
                      px-3 py-2 rounded-lg border-none cursor-pointer transition-all">
-              👁️
-            </button>
-            <!-- PDF -->
-            <button @click="downloadPDF(decl)"
-              class="text-xs font-medium text-[#005A3C] bg-[#E8F4F0] hover:bg-[#d0ece3]
-                     px-3 py-2 rounded-lg border-none cursor-pointer transition-all">
-              📄
+              👁️ Voir
             </button>
             <!-- Changer statut -->
-            <button @click="openModal(decl)"
-              class="text-xs font-bold text-white bg-[#005A3C] hover:bg-[#007A52]
+            <button @click="openStatut(decl)"
+              class="text-xs font-semibold text-[#2563EB] bg-blue-50 hover:bg-blue-100
                      px-3 py-2 rounded-lg border-none cursor-pointer transition-all">
               ✏️ Statut
             </button>
+            <!-- Supprimer — admin uniquement -->
+            <button v-if="authStore.isAdmin"
+              @click="askDelete(decl)"
+              class="text-xs font-semibold text-rouge bg-red-50 hover:bg-red-100
+                     px-3 py-2 rounded-lg border-none cursor-pointer transition-all">
+              🗑️ Supprimer
+            </button>
           </div>
+        </div>
 
-        </div>
-        <!-- Barre statut -->
         <div class="h-0.5 rounded-b-2xl"
-          :style="{ backgroundColor: getStatus(decl.statut).color, opacity: 0.3 }">
+          :style="{ backgroundColor: getStatus(decl.statut).color, opacity: 0.25 }">
         </div>
+
       </div>
     </transition-group>
   </div>
 
 </div>
 
-<!-- ════════════════════════════════════
-     MODAL — Changer le statut
-════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════
+     MODALE — Changer statut
+════════════════════════════════════════════ -->
 <transition name="modal">
-  <div v-if="modalOpen"
+  <div v-if="statutModal"
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    style="background: rgba(0,0,0,.45);"
-    @click.self="closeModal">
+    style="background:rgba(0,0,0,.45)"
+    @click.self="statutModal = false">
 
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative">
-
-      <!-- Fermer -->
-      <button @click="closeModal"
-        class="absolute top-4 right-4 w-8 h-8 rounded-full bg-gray-100
-               flex items-center justify-center text-gray-500 text-sm
-               hover:bg-gray-200 border-none cursor-pointer transition-all">
-        ✕
-      </button>
-
-      <h2 class="font-serif text-xl font-bold text-[#1A2E22] mb-1">
-        Changer le statut
-      </h2>
-      <p class="text-xs text-gray-500 mb-5">
-        Déclaration <span class="font-mono font-bold text-[#005A3C]">{{ selectedDecl?.numero_recepisse }}</span>
-        — {{ selectedDecl?.nom_sur_piece }}
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <h2 class="font-serif text-lg font-bold text-[#1A2E22] mb-1">Changer le statut</h2>
+      <p class="text-xs text-gray-400 mb-5">
+        Déclaration : <strong class="font-mono">{{ selectedDecl?.numero_recepisse }}</strong>
       </p>
 
-      <!-- Succès inline -->
-      <div v-if="saveSuccess"
-        class="flex items-center gap-2 bg-green-50 border border-green-200
-               rounded-xl p-3 mb-4 text-sm text-green-700">
-        <span>✅</span><span>{{ saveSuccess }}</span>
-      </div>
-
-      <!-- Erreur inline -->
       <div v-if="apiError"
-        class="flex items-center gap-2 bg-red-50 border border-red-200
-               rounded-xl p-3 mb-4 text-sm text-rouge">
-        <span>⚠️</span><span>{{ apiError }}</span>
+        class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-rouge mb-4">
+        ⚠️ {{ apiError }}
       </div>
 
-      <!-- Sélecteur statut -->
-      <div class="mb-4">
-        <label class="form-label">Nouveau statut</label>
-        <div class="grid grid-cols-2 gap-2">
-          <button v-for="s in statuts" :key="s.key"
-            type="button"
-            @click="newStatut = s.key"
-            :class="[
-              'flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-semibold',
-              'transition-all cursor-pointer text-left',
-              newStatut === s.key
-                ? 'border-[#005A3C] shadow-sm'
-                : 'border-gray-200 bg-white hover:border-gray-300'
-            ]"
-            :style="newStatut === s.key
-              ? { backgroundColor: s.bg, color: s.color }
-              : {}">
-            <span>{{ s.icon }}</span>
-            <span>{{ s.label }}</span>
-          </button>
+      <div class="space-y-4">
+        <div>
+          <label class="form-label">Nouveau statut <span class="text-rouge">*</span></label>
+          <select v-model="nouveauStatut" class="form-input text-sm">
+            <option v-for="s in statutOptions" :key="s.value" :value="s.value">
+              {{ s.label }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Remarques <span class="text-gray-400 font-normal">(optionnel)</span></label>
+          <textarea v-model="remarques" rows="3" placeholder="Informations complémentaires…"
+            class="form-input text-sm resize-none"></textarea>
         </div>
       </div>
 
-      <!-- Remarques -->
-      <div class="mb-5">
-        <label class="form-label">
-          Remarques <span class="text-gray-400 normal-case font-normal">(optionnel)</span>
-        </label>
-        <textarea v-model="remarques" rows="3"
-          placeholder="Ajoutez une note visible par le déclarant…"
-          class="form-input resize-none text-sm"></textarea>
-      </div>
-
-      <!-- Boutons -->
-      <div class="flex gap-3">
-        <button @click="closeModal"
-          class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium
-                 text-gray-500 bg-white hover:bg-gray-50 transition-all cursor-pointer">
+      <div class="flex gap-3 mt-5">
+        <button @click="statutModal = false; apiError = null"
+          class="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium
+                 text-gray-500 bg-white hover:bg-gray-50 cursor-pointer transition-all">
           Annuler
         </button>
-        <button @click="applyStatut"
-          :disabled="saving || !newStatut || newStatut === selectedDecl?.statut"
-          class="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+        <button @click="handleChangerStatut" :disabled="changingStatut"
+          class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl
                  bg-[#005A3C] text-white font-bold text-sm border-none cursor-pointer
-                 transition-all hover:bg-[#007A52] hover:shadow-md
-                 disabled:opacity-50 disabled:cursor-not-allowed">
-          <span v-if="saving" class="loader-dot"></span>
-          <span v-else>✅</span>
-          {{ saving ? 'Enregistrement…' : 'Confirmer' }}
+                 hover:bg-[#007A52] transition-all disabled:opacity-50">
+          <span v-if="changingStatut" class="loader"></span>
+          {{ changingStatut ? 'Sauvegarde…' : '✅ Enregistrer' }}
         </button>
       </div>
+    </div>
+  </div>
+</transition>
 
+<!-- ════════════════════════════════════════════
+     MODALE — Confirmation suppression
+════════════════════════════════════════════ -->
+<transition name="modal">
+  <div v-if="deleteModal"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style="background:rgba(0,0,0,.5)"
+    @click.self="deleteModal = false">
+
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+      <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center
+                  text-3xl mx-auto mb-4">
+        🗑️
+      </div>
+      <h3 class="font-serif text-lg font-bold text-[#1A2E22] mb-2">
+        Supprimer cette déclaration ?
+      </h3>
+
+      <!-- Récap -->
+      <div v-if="declToDelete"
+        class="flex items-center gap-3 bg-gray-50 rounded-xl p-3 mb-3 text-left">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
+          :style="{ backgroundColor: declToDelete.type_declaration === 'PERTE' ? '#FEE2E2' : '#E8F4F0' }">
+          {{ declToDelete.type_declaration === 'PERTE' ? '😟' : '🤲' }}
+        </div>
+        <div>
+          <p class="font-mono text-sm font-bold text-[#005A3C]">
+            {{ declToDelete.numero_recepisse }}
+          </p>
+          <p class="text-xs text-gray-400">{{ declToDelete.nom_sur_piece }}</p>
+        </div>
+      </div>
+
+      <div class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-rouge mb-5 text-left">
+        ⚠️ <strong>Action irréversible.</strong> La déclaration et ses notifications
+        associées seront définitivement supprimées.
+      </div>
+
+      <div v-if="apiError"
+        class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-rouge mb-4">
+        {{ apiError }}
+      </div>
+
+      <div class="flex gap-3">
+        <button @click="deleteModal = false; apiError = null"
+          class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium
+                 text-gray-500 bg-white hover:bg-gray-50 cursor-pointer transition-all">
+          Annuler
+        </button>
+        <button @click="confirmDelete" :disabled="deleting"
+          class="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+                 bg-rouge text-white font-bold text-sm border-none cursor-pointer
+                 hover:bg-[#e8192f] transition-all disabled:opacity-50">
+          <span v-if="deleting" class="loader"></span>
+          <span v-else>🗑️</span>
+          {{ deleting ? 'Suppression…' : 'Supprimer' }}
+        </button>
+      </div>
     </div>
   </div>
 </transition>
@@ -400,18 +412,23 @@ const downloadPDF = async (decl) => {
 </template>
 
 <style scoped>
-.list-item-enter-active { transition: all .25s ease; }
-.list-item-enter-from   { opacity: 0; transform: translateY(8px); }
+.list-item-enter-active { transition: all .2s ease; }
+.list-item-enter-from   { opacity: 0; transform: translateY(6px); }
+.list-item-leave-active { transition: all .2s ease; position: absolute; width: 100%; }
+.list-item-leave-to     { opacity: 0; transform: translateX(20px); }
 
-.modal-enter-active, .modal-leave-active { transition: all .2s ease; }
+.modal-enter-active, .modal-leave-active { transition: opacity .2s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
-.modal-enter-active > div, .modal-leave-active > div { transition: all .2s ease; }
+.modal-enter-active > div, .modal-leave-active > div { transition: transform .2s ease; }
 .modal-enter-from > div, .modal-leave-to > div { transform: scale(.95); }
 
-.loader-dot {
-  display: inline-block; width: 14px; height: 14px;
+.slide-msg-enter-active, .slide-msg-leave-active { transition: all .25s ease; }
+.slide-msg-enter-from, .slide-msg-leave-to { opacity: 0; transform: translateY(-5px); }
+
+.loader {
+  width: 14px; height: 14px;
   border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
-  border-radius: 50%; animation: spin .7s linear infinite;
+  border-radius: 50%; animation: spin .7s linear infinite; display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
