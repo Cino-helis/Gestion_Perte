@@ -6,6 +6,7 @@ VERSION CORRIGÉE
 
 from pathlib import Path
 from datetime import timedelta
+import os  # ← ajouté pour les variables d'environnement (configuration email)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -200,3 +201,40 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10 MB
 
 # Types de fichiers autorisés pour les photos de pièces
 ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/jpg']
+
+
+# ======================
+# EMAIL — GMAIL SMTP
+# ======================
+# Prérequis Gmail :
+#   1. Activez la vérification en 2 étapes sur le compte Gmail.
+#   2. Créez un "Mot de passe d'application" dans :
+#      Compte Google → Sécurité → Mots de passe des applis
+#   3. Renseignez les 3 variables d'environnement ci-dessous
+#      dans votre fichier .env ou dans le système.
+#
+# Variables à définir :
+#   DECLATOGO_EMAIL_HOST_USER     = votre.adresse@gmail.com
+#   DECLATOGO_EMAIL_HOST_PASSWORD = xxxx xxxx xxxx xxxx  (App Password 16 car.)
+#   DECLATOGO_DEFAULT_FROM_EMAIL  = DéclaTogo <votre.adresse@gmail.com>
+
+EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST          = 'smtp.gmail.com'
+EMAIL_PORT          = 587
+EMAIL_USE_TLS       = True
+EMAIL_USE_SSL       = False  # TLS et SSL s'excluent mutuellement
+EMAIL_TIMEOUT       = 10     # secondes avant abandon de connexion
+
+EMAIL_HOST_USER     = os.environ.get('DECLATOGO_EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('DECLATOGO_EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = os.environ.get(
+    'DECLATOGO_DEFAULT_FROM_EMAIL',
+    f'DéclaTogo <{EMAIL_HOST_USER}>'
+)
+
+# ---------------------------------------------------------------------
+# DÉVELOPPEMENT : remplacez EMAIL_BACKEND ci-dessus par la ligne
+# suivante pour afficher les emails dans la console sans les envoyer :
+#
+#   EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# ---------------------------------------------------------------------

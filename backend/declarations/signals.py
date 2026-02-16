@@ -9,11 +9,15 @@ Logique métier :
       → Les deux déclarations passent au statut RETROUVE
       → Les deux sont liées (declaration_correspondante)
       → Chaque déclarant reçoit une Notification de type MATCH
+      → Chaque déclarant reçoit un email Gmail avec les instructions
 """
 
+import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender='declarations.Declaration')
@@ -67,14 +71,14 @@ def chercher_correspondance(sender, instance, created, **kwargs):
             statut='RETROUVE'
         )
 
-        # --- Notification pour le déclarant de l'instance ---
+        # --- Notification + email pour le déclarant de l'instance ---
         _creer_notification_match(
             user=instance.user,
             declaration_propre=instance,
             declaration_match=match
         )
 
-        # --- Notification pour le déclarant du match ---
+        # --- Notification + email pour le déclarant du match ---
         _creer_notification_match(
             user=match.user,
             declaration_propre=match,
@@ -84,13 +88,15 @@ def chercher_correspondance(sender, instance, created, **kwargs):
 
 def _creer_notification_match(user, declaration_propre, declaration_match):
     """
-    Crée une notification de type MATCH pour un utilisateur.
-    Séparée dans une fonction helper pour la lisibilité.
+    Crée une notification in-app de type MATCH ET envoie l'email Gmail
+    pour un utilisateur lors d'un matching automatique.
     """
     from .models import Notification
+    from .email_service import envoyer_email_retrouve  # import local → évite les imports circulaires
 
+    # ── Notification in-app ───────────────────────────────────────────────────
     if declaration_propre.type_declaration == 'PERTE':
-        titre = f"🎉 Bonne nouvelle ! Votre pièce a peut-être été retrouvée"
+        titre = "🎉 Bonne nouvelle ! Votre pièce a peut-être été retrouvée"
         message = (
             f"Votre déclaration de perte '{declaration_propre.numero_recepisse}' "
             f"({declaration_propre.numero_piece} - {declaration_propre.nom_sur_piece}) "
@@ -99,7 +105,7 @@ def _creer_notification_match(user, declaration_propre, declaration_match):
             f"Veuillez contacter le commissariat pour la restitution."
         )
     else:
-        titre = f"📋 Une pièce que vous avez trouvée a un propriétaire"
+        titre = "📋 Une pièce que vous avez trouvée a un propriétaire"
         message = (
             f"La trouvaille que vous avez déclarée sous '{declaration_propre.numero_recepisse}' "
             f"({declaration_propre.numero_piece} - {declaration_propre.nom_sur_piece}) "
@@ -114,3 +120,19 @@ def _creer_notification_match(user, declaration_propre, declaration_match):
         titre=titre,
         message=message
     )
+
+    # ── Email Gmail ───────────────────────────────────────────────────────────
+    try:
+        envoyer_email_retrouve(
+            user=user,
+            declaration=declaration_propre,
+            match=declaration_match,
+        )
+    except Exception as exc:
+        logger.error(
+            "Échec email MATCH pour %s <%s> — déclaration %s : %s",
+            user.username,
+            getattr(user, 'email', '?'),
+            declaration_propre.numero_recepisse,
+            exc
+        )

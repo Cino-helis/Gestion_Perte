@@ -12,6 +12,7 @@ from django.utils import timezone
 from datetime import timedelta
 from django.http import FileResponse
 from .pdf_generator import generate_recepisse_pdf
+import logging  # ← ajouté pour les logs d'email
 
 from .models import CategoriePiece, Declaration, Notification
 from .serializers import (
@@ -23,8 +24,10 @@ from .serializers import (
     StatistiquesSerializer, RechercheCorrespondanceSerializer
 )
 from .permissions import IsAdminOrPolice, IsAdminOnly, IsOwnerOrAdminOrPolice
+from .email_service import envoyer_email_retrouve  # ← ajouté pour les notifications Gmail
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -354,22 +357,76 @@ class DeclarationViewSet(viewsets.ModelViewSet):
                 {'error': f"Statut invalide. Valeurs : {list(dict(Declaration.STATUT_CHOICES).keys())}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        ancien = declaration.get_statut_display()
+
+        ancien_statut = declaration.statut          # ← mémorisé avant modification
+        ancien_label  = declaration.get_statut_display()
+
         declaration.statut = nouveau_statut
         if remarques:
             declaration.remarques_admin = remarques
         declaration.save()
 
+        # ── Notification in-app (existante, inchangée) ────────────────────────
         Notification.objects.create(
             user=declaration.user, declaration=declaration,
             type_notification='STATUT',
             titre=f"Changement de statut : {declaration.numero_recepisse}",
             message=(
-                f"Votre déclaration est passée de « {ancien} » "
+                f"Votre déclaration est passée de « {ancien_label} » "
                 f"à « {declaration.get_statut_display()} ». {remarques}"
             )
         )
+
+        # ── Emails Gmail si passage à RETROUVE ────────────────────────────────
+        if nouveau_statut == 'RETROUVE' and ancien_statut != 'RETROUVE':
+            self._envoyer_emails_retrouve(declaration, remarques)
+
         return Response(DeclarationDetailSerializer(declaration).data)
+
+    # -------------------------------------------------------------------------
+    # Méthode privée : envoi des emails lors d'un passage manuel à RETROUVE
+    # -------------------------------------------------------------------------
+
+    def _envoyer_emails_retrouve(self, declaration, remarques=''):
+        """
+        Envoie les emails Gmail aux déclarants concernés quand
+        l'agent passe manuellement une déclaration au statut RETROUVE.
+
+        Cas 1 — La déclaration a déjà une correspondance (match) :
+            → Email au déclarant principal + email à la partie adverse.
+        Cas 2 — Pas de correspondance (action manuelle sans match) :
+            → Email au seul déclarant de la déclaration concernée.
+        """
+        match = declaration.declaration_correspondante  # peut être None
+
+        # Email au déclarant de la déclaration modifiée par l'agent
+        try:
+            envoyer_email_retrouve(
+                user=declaration.user,
+                declaration=declaration,
+                match=match,
+                remarques=remarques,
+            )
+        except Exception as exc:
+            logger.error(
+                "Échec email RETROUVÉ (déclarant principal) %s : %s",
+                declaration.numero_recepisse, exc
+            )
+
+        # Email au déclarant de la déclaration correspondante (si présent et distinct)
+        if match and match.user != declaration.user:
+            try:
+                envoyer_email_retrouve(
+                    user=match.user,
+                    declaration=match,
+                    match=declaration,
+                    remarques=remarques,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Échec email RETROUVÉ (déclarant correspondant) %s : %s",
+                    match.numero_recepisse, exc
+                )
 
 
 # =============================================================================
