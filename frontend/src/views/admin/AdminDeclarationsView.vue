@@ -36,26 +36,62 @@ async function loadDeclarations() {
   apiError.value = null
   try {
     const { data } = await declarationsAPI.list()
-    declarations.value = data
+    // ✅ CORRECTION : L'API Django retourne un objet paginé avec 'results'
+    declarations.value = data.results ?? data
+    console.log('✅ Déclarations chargées:', declarations.value.length)
   } catch (e) {
     apiError.value = 'Impossible de charger les déclarations.'
+    console.error('❌ Erreur chargement déclarations:', e)
   } finally {
     loading.value = false
   }
 }
 
-/* ══ Filtrage ══ */
+/* ══ Filtrage AMÉLIORÉ ══ */
 const filtered = computed(() => {
   let list = declarations.value
-  if (filterStatut.value) list = list.filter(d => d.statut === filterStatut.value)
-  if (filterType.value)   list = list.filter(d => d.type_declaration === filterType.value)
+
+  // Filtre par statut
+  if (filterStatut.value) {
+    list = list.filter(d => d.statut === filterStatut.value)
+  }
+
+  // Filtre par type
+  if (filterType.value) {
+    list = list.filter(d => d.type_declaration === filterType.value)
+  }
+
+  // Recherche textuelle améliorée
   const q = search.value.toLowerCase().trim()
-  if (q) list = list.filter(d =>
-    (d.numero_piece   || '').toLowerCase().includes(q) ||
-    (d.nom_sur_piece  || '').toLowerCase().includes(q) ||
-    (d.numero_recepisse || '').toLowerCase().includes(q) ||
-    (d.declarant      || '').toLowerCase().includes(q)
-  )
+  if (q) {
+    list = list.filter(d => {
+      // Normaliser pour la recherche (gérer les espaces multiples, etc.)
+      const normalizeText = (text) => {
+        return (text || '').toLowerCase().trim().replace(/\s+/g, ' ')
+      }
+
+      // Champs de recherche
+      const numeroPiece   = normalizeText(d.numero_piece)
+      const nomSurPiece   = normalizeText(d.nom_sur_piece)
+      const numeroRecep   = normalizeText(d.numero_recepisse)
+      const declarant     = normalizeText(d.declarant)
+      const nomDeclarant  = normalizeText(d.nom_declarant)
+      const prenomDecl    = normalizeText(d.prenom_declarant)
+      const categorie     = normalizeText(d.categorie_nom)
+      const lieuPerte     = normalizeText(d.lieu_perte)
+
+      // Recherche dans tous les champs pertinents
+      return numeroPiece.includes(q)   ||
+             nomSurPiece.includes(q)   ||
+             numeroRecep.includes(q)   ||
+             declarant.includes(q)     ||
+             nomDeclarant.includes(q)  ||
+             prenomDecl.includes(q)    ||
+             categorie.includes(q)     ||
+             lieuPerte.includes(q)
+    })
+  }
+
   return list
 })
 
@@ -176,32 +212,59 @@ const statutOptions = Object.entries(statusConfig).map(([v, c]) => ({ value: v, 
     </div>
   </transition>
 
-  <!-- ══ Filtres ══ -->
+  <!-- ══ Filtres AMÉLIORÉS ══ -->
   <div class="flex flex-wrap gap-3 mb-5">
-    <!-- Recherche -->
-    <div class="relative flex-1 min-w-48">
+    <!-- Recherche avec placeholder détaillé -->
+    <div class="relative flex-1 min-w-[280px]">
       <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
       <input v-model="search" type="text"
-        placeholder="N° pièce, nom, récépissé, déclarant…"
+        placeholder="Rechercher par N° pièce, nom, récépissé, déclarant, catégorie, lieu…"
         class="form-input pl-10 text-sm w-full" />
+      <!-- Compteur de résultats -->
+      <div v-if="search" class="absolute right-3 top-1/2 -translate-y-1/2">
+        <span class="text-xs bg-[#E8F4F0] text-[#005A3C] px-2 py-1 rounded-full font-semibold">
+          {{ filtered.length }}
+        </span>
+      </div>
     </div>
+    
     <!-- Filtre type -->
-    <select v-model="filterType" class="form-input text-sm w-auto">
+    <select v-model="filterType" class="form-input text-sm w-auto min-w-[140px]">
       <option value="">Tous les types</option>
       <option value="PERTE">😟 Pertes</option>
       <option value="TROUVAILLE">🤲 Trouvailles</option>
     </select>
+    
     <!-- Filtre statut -->
-    <select v-model="filterStatut" class="form-input text-sm w-auto">
+    <select v-model="filterStatut" class="form-input text-sm w-auto min-w-[160px]">
       <option value="">Tous les statuts</option>
       <option v-for="s in statutOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
     </select>
+    
+    <!-- Bouton réinitialiser filtres -->
+    <button v-if="search || filterType || filterStatut"
+      @click="search = ''; filterType = ''; filterStatut = ''"
+      class="text-xs text-gray-400 hover:text-rouge px-3 py-2 rounded-lg
+             bg-white border border-gray-200 cursor-pointer transition-all hover:border-rouge/30">
+      ✕ Réinitialiser
+    </button>
   </div>
 
-  <!-- Compteur résultats -->
-  <p class="text-xs text-gray-400 mb-3">
-    {{ filtered.length }} déclaration(s) affichée(s) sur {{ declarations.length }}
-  </p>
+  <!-- Compteur résultats détaillé -->
+  <div class="flex items-center justify-between mb-3">
+    <p class="text-xs text-gray-500">
+      <span class="font-bold text-[#005A3C]">{{ filtered.length }}</span> déclaration(s) affichée(s)
+      <span v-if="filtered.length !== declarations.length" class="text-gray-400">
+        sur {{ declarations.length }} au total
+      </span>
+    </p>
+    
+    <!-- Info recherche active -->
+    <div v-if="search" class="text-xs text-gray-400 flex items-center gap-2">
+      <span>🔍 Recherche active :</span>
+      <span class="font-mono bg-gray-100 px-2 py-0.5 rounded text-[#005A3C]">{{ search }}</span>
+    </div>
+  </div>
 
   <!-- ══ Squelettes ══ -->
   <div v-if="loading" class="space-y-3">
@@ -209,11 +272,26 @@ const statutOptions = Object.entries(statusConfig).map(([v, c]) => ({ value: v, 
   </div>
 
   <!-- ══ Vide ══ -->
-  <div v-else-if="filtered.length === 0"
+  <div v-else-if="filtered.length === 0 && declarations.length === 0"
     class="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-card">
     <div class="text-4xl mb-3">📋</div>
     <p class="font-serif text-base font-bold text-[#1A2E22] mb-1">Aucune déclaration</p>
-    <p class="text-sm text-gray-400">Modifiez vos filtres.</p>
+    <p class="text-sm text-gray-400">La base de données est vide.</p>
+  </div>
+  
+  <!-- Filtre vide -->
+  <div v-else-if="filtered.length === 0"
+    class="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-200">
+    <div class="text-3xl mb-3">🔍</div>
+    <p class="text-sm text-gray-500 mb-1">Aucune déclaration ne correspond aux critères</p>
+    <p class="text-xs text-gray-400 mb-4">
+      Essayez de modifier vos filtres ou votre recherche
+    </p>
+    <button @click="search = ''; filterType = ''; filterStatut = ''"
+      class="text-xs text-[#005A3C] font-semibold bg-[#E8F4F0] px-4 py-2 rounded-lg
+             border-none cursor-pointer hover:bg-[#d0ece3] transition-all">
+      Réinitialiser les filtres
+    </button>
   </div>
 
   <!-- ══ Liste ══ -->
