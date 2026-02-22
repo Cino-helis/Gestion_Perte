@@ -114,7 +114,7 @@ const typeFilters = [
              bg-[#E8F4F0] border border-[#005A3C]/20 px-4 py-2.5 rounded-xl
              cursor-pointer hover:bg-[#d0ece3] transition-all disabled:opacity-50 border-none">
       <span v-if="markingAll" class="loader-dot-sm"></span>
-      <span v-else">✓✓</span>
+      <span v-else>✓✓</span>
       Tout marquer comme lu
     </button>
   </div>

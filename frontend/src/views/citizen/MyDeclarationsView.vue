@@ -42,7 +42,7 @@ const stats = computed(() => {
   const d = declarations.value
   return {
     total:     d.length,
-    pertes:    d.filter(x => x.type_declaration === 'PERTE').count,
+    pertes:    d.filter(x => x.type_declaration === 'PERTE').length,
     attente:   d.filter(x => x.statut === 'EN_ATTENTE').length,
     retrouve:  d.filter(x => x.statut === 'RETROUVE').length,
     restitue:  d.filter(x => x.statut === 'RESTITUE').length,

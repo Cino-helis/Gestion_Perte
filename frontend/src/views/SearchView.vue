@@ -7,7 +7,12 @@ const route  = useRoute()
 const router = useRouter()
 
 /* ══ État ══ */
-const query      = ref(route.query.q    || '')
+// AJOUT : Mode de recherche et champs nom/prénom
+const searchMode = ref(route.query.mode || 'numero') // 'numero' ou 'nom'
+const query      = ref(route.query.q    || '')       // Numéro de pièce
+const nom        = ref(route.query.nom  || '')       // Nom de famille
+const prenom     = ref(route.query.prenom || '')     // Prénom
+
 const catFilter  = ref(route.query.cat  || '')
 const results    = ref([])
 const categories = ref([])
@@ -21,18 +26,37 @@ onMounted(async () => {
     const { data } = await categoriesAPI.list()
     categories.value = data.results ?? data
   } catch {}
-  // Lancer la recherche si query dans l'URL
-  if (query.value) doSearch()
+  
+  // Lancer la recherche si des paramètres sont présents dans l'URL
+  if (query.value || nom.value || prenom.value) doSearch()
 })
 
 /* ══ Recherche debounced ══ */
 const doSearch = async () => {
-  if (!query.value.trim()) { results.value = []; searched.value = false; return }
+  // AJOUT : Vérification conditionnelle selon le mode
+  const isNumeroMode = searchMode.value === 'numero'
+  const hasInput = isNumeroMode 
+    ? query.value.trim() 
+    : (nom.value.trim() || prenom.value.trim())
+
+  if (!hasInput) { results.value = []; searched.value = false; return }
+
   loading.value = true
   searched.value = true
+  
   try {
-    const payload = { numero_piece: query.value.trim() }
+    // AJOUT : Construction dynamique du payload
+    const payload = {}
+    
+    if (isNumeroMode) {
+      payload.numero_piece = query.value.trim()
+    } else {
+      payload.nom_declarant = nom.value.trim()
+      payload.prenom_declarant = prenom.value.trim()
+    }
+
     if (catFilter.value) payload.categorie = Number(catFilter.value)
+    
     const { data } = await declarationsAPI.rechercher(payload)
     results.value = data.correspondances ?? []
   } catch {
@@ -40,11 +64,19 @@ const doSearch = async () => {
   } finally {
     loading.value = false
   }
-  // Sync URL
-  router.replace({ query: { q: query.value, cat: catFilter.value || undefined }})
+  
+  // Sync URL (Mise à jour pour inclure les nouveaux champs)
+  router.replace({ query: { 
+    mode: searchMode.value,
+    q: query.value || undefined, 
+    nom: nom.value || undefined,
+    prenom: prenom.value || undefined,
+    cat: catFilter.value || undefined 
+  }})
 }
 
-watch([query, catFilter], () => {
+// AJOUT : Watch sur les nouvelles variables
+watch([query, nom, prenom, catFilter, searchMode], () => {
   clearTimeout(debounce)
   debounce = setTimeout(doSearch, 420)
 })
@@ -70,7 +102,6 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
 <template>
 <div class="min-h-screen" style="background:#FAF7F2">
 
-  <!-- ══ Hero barre de recherche ══ -->
   <section class="relative overflow-hidden py-16 px-[5%]"
            style="background-color:#005A3C">
     <div class="absolute inset-0 kente-bg opacity-30"></div>
@@ -85,13 +116,30 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
         Votre pièce a peut-être<br/>
         <span class="text-[#D4A017]">été retrouvée</span>
       </h1>
-      <p class="text-white/75 text-sm mb-8 leading-relaxed">
-        Saisissez le numéro de votre pièce perdue — nous cherchons dans toutes les trouvailles déclarées.
+      <p class="text-white/75 text-sm mb-6 leading-relaxed">
+        Recherchez par numéro ou par nom dans notre base de trouvailles.
       </p>
 
-      <!-- Barre de recherche principale -->
+      <div class="flex justify-center mb-4">
+        <div class="inline-flex bg-black/20 p-1 rounded-xl border border-white/10">
+          <button 
+            @click="searchMode = 'numero'"
+            class="px-4 py-2 rounded-lg text-xs font-bold transition-all border-none cursor-pointer"
+            :class="searchMode === 'numero' ? 'bg-white text-[#005A3C]' : 'bg-transparent text-white/70 hover:text-white'">
+            🔢 Par Numéro
+          </button>
+          <button 
+            @click="searchMode = 'nom'"
+            class="px-4 py-2 rounded-lg text-xs font-bold transition-all border-none cursor-pointer"
+            :class="searchMode === 'nom' ? 'bg-white text-[#005A3C]' : 'bg-transparent text-white/70 hover:text-white'">
+            👤 Par Nom
+          </button>
+        </div>
+      </div>
+
       <div class="bg-white rounded-2xl p-2 shadow-2xl flex flex-col sm:flex-row gap-2">
-        <div class="relative flex-1">
+        
+        <div v-if="searchMode === 'numero'" class="relative flex-1">
           <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
           <input
             v-model="query"
@@ -102,12 +150,38 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
             @keyup.enter="doSearch"
           />
         </div>
+
+        <div v-else class="flex-1 flex flex-col sm:flex-row gap-0 sm:gap-2">
+            <div class="relative flex-1">
+                <input
+                    v-model="nom"
+                    type="text"
+                    placeholder="Nom"
+                    class="w-full border-0 outline-none bg-transparent px-4 py-3
+                        text-sm text-[#1A2E22] placeholder:text-gray-400"
+                    @keyup.enter="doSearch"
+                />
+            </div>
+            <div class="hidden sm:block w-[1px] bg-gray-200 my-2"></div>
+            <div class="relative flex-1">
+                <input
+                    v-model="prenom"
+                    type="text"
+                    placeholder="Prénom(s)"
+                    class="w-full border-0 outline-none bg-transparent px-4 py-3
+                        text-sm text-[#1A2E22] placeholder:text-gray-400"
+                    @keyup.enter="doSearch"
+                />
+            </div>
+        </div>
+
         <select v-model="catFilter"
           class="border-0 outline-none bg-gray-50 rounded-xl text-sm text-gray-600
                  px-3 py-3 cursor-pointer min-w-[160px]">
           <option value="">Toutes catégories</option>
           <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.libelle }}</option>
         </select>
+        
         <button @click="doSearch"
           class="bg-[#005A3C] text-white font-bold text-sm px-6 py-3 rounded-xl
                  border-none cursor-pointer transition-all hover:bg-[#007A52]
@@ -118,8 +192,7 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
         </button>
       </div>
 
-      <!-- Recherches fréquentes -->
-      <div class="flex items-center justify-center gap-2 flex-wrap mt-4">
+      <div v-if="searchMode === 'numero'" class="flex items-center justify-center gap-2 flex-wrap mt-4">
         <span class="text-xs text-white/40">Fréquents :</span>
         <button v-for="chip in popular" :key="chip"
           @click="query = chip"
@@ -133,21 +206,18 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
   </section>
 
 
-  <!-- ══ Zone de résultats ══ -->
   <section class="max-w-3xl mx-auto px-4 py-10">
 
-    <!-- Pas encore recherché -->
     <div v-if="!searched && !loading" class="text-center py-16">
       <div class="text-5xl mb-4">🗂️</div>
       <p class="text-gray-400 text-sm">
-        Entrez un numéro de pièce pour lancer la recherche.
+        Remplissez les informations ci-dessus pour lancer la recherche.
       </p>
       <p class="text-xs text-gray-400 mt-2">
         La recherche porte sur toutes les trouvailles validées dans notre base.
       </p>
     </div>
 
-    <!-- Chargement -->
     <div v-else-if="loading" class="space-y-3">
       <div class="flex items-center gap-3 mb-6">
         <div class="loader-ring"></div>
@@ -156,25 +226,24 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
       <div v-for="i in 3" :key="i" class="skeleton h-24 rounded-xl"></div>
     </div>
 
-    <!-- Résultats -->
     <template v-else-if="searched">
-      <!-- Header résultats -->
       <div class="flex items-center justify-between mb-5">
         <div>
           <span class="font-serif text-lg font-bold text-[#1A2E22]">
             {{ results.length }} résultat{{ results.length !== 1 ? 's' : '' }}
           </span>
-          <span class="text-sm text-gray-400 ml-2">pour « {{ query }} »</span>
+          <span class="text-sm text-gray-400 ml-2">
+              pour « {{ searchMode === 'numero' ? query : (nom + ' ' + prenom).trim() }} »
+          </span>
         </div>
-        <button v-if="results.length || query"
-          @click="query = ''; results = []; searched = false"
+        <button v-if="results.length || query || nom || prenom"
+          @click="{ query = ''; nom = ''; prenom = ''; results = []; searched = false }"
           class="text-xs text-gray-400 hover:text-[#C41230] bg-transparent
                  border-none cursor-pointer transition-colors">
           ✕ Effacer
         </button>
       </div>
 
-      <!-- Aucun résultat -->
       <div v-if="results.length === 0"
         class="text-center py-14 bg-white rounded-2xl border border-gray-100 shadow-card">
         <div class="text-4xl mb-4">😕</div>
@@ -192,7 +261,6 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
         </router-link>
       </div>
 
-      <!-- Liste des trouvailles -->
       <div v-else class="space-y-3">
         <transition-group name="list-item">
           <div v-for="decl in results" :key="decl.id"
@@ -200,13 +268,11 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
                    hover:shadow-card-lg hover:-translate-y-0.5 transition-all p-5
                    flex flex-col sm:flex-row items-start gap-4">
 
-            <!-- Icône catégorie -->
             <div class="w-12 h-12 bg-[#E8F4F0] rounded-xl flex items-center
                         justify-center text-2xl flex-shrink-0">
               🤲
             </div>
 
-            <!-- Infos -->
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2 flex-wrap mb-1">
                 <div>
@@ -218,7 +284,6 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
                     {{ decl.nom_sur_piece }}
                   </span>
                 </div>
-                <!-- Badge statut -->
                 <span class="badge text-xs flex-shrink-0"
                   :style="{
                     color: getStatus(decl.statut).color,
@@ -235,7 +300,6 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
               </div>
             </div>
 
-            <!-- CTA -->
             <div class="flex-shrink-0 sm:self-center">
               <router-link :to="{ name: 'declare', query: { type: 'PERTE' } }"
                 class="inline-flex items-center gap-1.5 bg-[#005A3C] text-white
@@ -248,7 +312,6 @@ const popular = ['CNI', 'Passeport', 'Carte grise', 'Permis', 'Diplôme']
           </div>
         </transition-group>
 
-        <!-- Invite à déclarer quand même -->
         <div class="mt-6 bg-[#FFFBEB] border border-yellow-200 rounded-2xl p-5
                     flex items-start gap-3">
           <span class="text-xl">💡</span>
