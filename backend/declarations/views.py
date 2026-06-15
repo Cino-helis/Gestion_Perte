@@ -13,6 +13,7 @@ from datetime import timedelta
 from django.http import FileResponse
 from .pdf_generator import generate_recepisse_pdf
 import logging  # ← ajouté pour les logs d'email
+from django.contrib.auth import authenticate
 
 from .models import CategoriePiece, Declaration, Notification
 from .serializers import (
@@ -364,7 +365,7 @@ class DeclarationViewSet(viewsets.ModelViewSet):
         declaration.statut = nouveau_statut
         if remarques:
             declaration.remarques_admin = remarques
-        declaration.save()
+        declaration.save(update_fields=['statut', 'remarques_admin', 'date_modification'])
 
         # ── Notification in-app (existante, inchangée) ────────────────────────
         Notification.objects.create(
@@ -490,3 +491,33 @@ class StatistiquesView(APIView):
             ),
         }
         return Response(data)
+    
+
+
+
+# =============================================================================
+# CHANGEMENT DE MOT DE PASSE
+# =============================================================================
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        old_pwd = request.data.get('current_password', '')
+        new_pwd = request.data.get('new_password', '')
+
+        if not authenticate(username=user.username, password=old_pwd):
+            return Response(
+                {'current_password': 'Mot de passe actuel incorrect.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(new_pwd) < 8:
+            return Response(
+                {'new_password': 'Minimum 8 caractères.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user.set_password(new_pwd)
+        user.save()
+        return Response({'message': 'Mot de passe modifié avec succès.'})

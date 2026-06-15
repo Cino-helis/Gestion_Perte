@@ -7,6 +7,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import RegexValidator
 from django.utils import timezone
+from django.db import transaction
 
 
 class User(AbstractUser):
@@ -279,22 +280,16 @@ class Declaration(models.Model):
         return f"{self.get_type_declaration_display()} - {self.numero_piece} ({self.nom_sur_piece})"
     
     def save(self, *args, **kwargs):
-        """
-        Génère automatiquement un numéro de récépissé si non existant
-        Format: PERTE-2024-00001 ou TROUV-2024-00001
-        """
         if not self.numero_recepisse:
             prefixe = 'PERTE' if self.type_declaration == 'PERTE' else 'TROUV'
             annee = timezone.now().year
-            
-            # Compter les déclarations du même type cette année
-            count = Declaration.objects.filter(
-                type_declaration=self.type_declaration,
-                date_declaration__year=annee
-            ).count() + 1
-            
-            self.numero_recepisse = f"{prefixe}-{annee}-{count:05d}"
-        
+            with transaction.atomic():
+                # select_for_update bloque les lectures concurrentes
+                count = Declaration.objects.select_for_update().filter(
+                    type_declaration=self.type_declaration,
+                    date_declaration__year=annee
+                ).count() + 1
+                self.numero_recepisse = f"{prefixe}-{annee}-{count:05d}"
         super().save(*args, **kwargs)
     
     @property

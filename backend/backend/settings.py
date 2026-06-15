@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     
     # Notre application
     'declarations',
+
 ]
 
 MIDDLEWARE = [

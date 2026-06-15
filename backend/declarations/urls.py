@@ -11,6 +11,7 @@ from .views import (
     CategoriePieceViewSet, DeclarationViewSet,
     NotificationViewSet, StatistiquesView
 )
+from .views import ChangePasswordView
 
 router = DefaultRouter()
 router.register(r'categories',    CategoriePieceViewSet, basename='categorie')
@@ -35,4 +36,7 @@ urlpatterns = [
 
     # Routes auto (router)
     path('', include(router.urls)),
+
+    # Changement de mot de passe
+    path('change-password/', ChangePasswordView.as_view(), name='change-password'),
 ]

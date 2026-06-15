@@ -86,20 +86,21 @@ const savePassword = async () => {
   submitting.value = true
   success.value    = null
   apiError.value   = null
-  // DRF attendrait un endpoint dédié; on envoie via PUT profil
-  // En prod il faudrait un endpoint /api/change-password/ custom
-  const result = await authStore.updateProfile({
-    password:         pwdForm.value.new_password,
-    current_password: pwdForm.value.current_password,
-  })
-  if (result.success) {
+  try {
+    await api.post('change-password/', {
+      current_password: pwdForm.value.current_password,
+      new_password:     pwdForm.value.new_password,
+    })
     success.value = 'Mot de passe modifié avec succès !'
     pwdForm.value = { current_password: '', new_password: '', confirm_password: '' }
-  } else {
-    apiError.value = result.error
+  } catch (e) {
+    apiError.value = e.response?.data?.current_password
+                  || e.response?.data?.new_password
+                  || 'Erreur lors du changement.'
+  } finally {
+    submitting.value = false
+    submitted.value  = false
   }
-  submitting.value = false
-  submitted.value  = false
 }
 
 /* ══ Initiale avatar ══ */

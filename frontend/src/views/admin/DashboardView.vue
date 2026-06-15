@@ -3,9 +3,11 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { statsAPI } from '../../services/api'
 import { useAuthStore } from '../../stores/auth'
+import { Chart, registerables } from 'chart.js'
 
 const router    = useRouter()
 const authStore = useAuthStore()
+Chart.register(...registerables)
 
 const stats   = ref(null)
 const loading = ref(true)
@@ -28,8 +30,6 @@ const chartLoaded = ref(false)
 const renderCharts = async () => {
   if (typeof window === 'undefined') return
   try {
-    const { Chart, registerables } = await import('https://cdn.jsdelivr.net/npm/chart.js@4/+esm')
-    Chart.register(...registerables)
     chartLoaded.value = true
     await new Promise(r => setTimeout(r, 100))
     const s = stats.value

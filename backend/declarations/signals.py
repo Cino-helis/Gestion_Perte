@@ -36,6 +36,11 @@ def chercher_correspondance(sender, instance, created, **kwargs):
         return
     if instance.declaration_correspondante is not None:
         return
+    if not created:
+        update_fields = kwargs.get('update_fields')
+        # Si le save ne concerne pas le statut, on ignore
+        if update_fields and 'statut' not in update_fields:
+            return
 
     # Déterminer le type opposé à chercher
     type_oppose = 'TROUVAILLE' if instance.type_declaration == 'PERTE' else 'PERTE'
@@ -57,32 +62,27 @@ def chercher_correspondance(sender, instance, created, **kwargs):
 
     # Utiliser une transaction pour garantir l'atomicité
     with transaction.atomic():
-        # Lier les deux déclarations
-        instance.declaration_correspondante = match
-        instance.statut = 'RETROUVE'
-        # Utiliser update_fields pour éviter de redéclencher le signal à l'infini
         Declaration.objects.filter(pk=instance.pk).update(
             declaration_correspondante=match,
             statut='RETROUVE'
         )
-
         Declaration.objects.filter(pk=match.pk).update(
             declaration_correspondante=instance,
             statut='RETROUVE'
         )
+        # Recharger pour avoir des objets à jour
+        instance_fresh = Declaration.objects.get(pk=instance.pk)
+        match_fresh    = Declaration.objects.get(pk=match.pk)
 
-        # --- Notification + email pour le déclarant de l'instance ---
         _creer_notification_match(
             user=instance.user,
-            declaration_propre=instance,
-            declaration_match=match
+            declaration_propre=instance_fresh,
+            declaration_match=match_fresh
         )
-
-        # --- Notification + email pour le déclarant du match ---
         _creer_notification_match(
             user=match.user,
-            declaration_propre=match,
-            declaration_match=instance
+            declaration_propre=match_fresh,
+            declaration_match=instance_fresh
         )
 
 
