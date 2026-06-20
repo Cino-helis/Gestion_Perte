@@ -1,11 +1,11 @@
 /**
- * Vue Router — DéclaTogo
+ * Vue Router — DéclaTogo (avec workflow de remplacement)
  */
 
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
-  // ── Pages publiques ─────────────────────────────────────────────
+  // ── Pages publiques ───────────────────────────────────────────────────
   {
     path: '/',
     name: 'home',
@@ -19,7 +19,7 @@ const routes = [
     meta: { title: 'Rechercher une pièce — DéclaTogo', public: true },
   },
 
-  // ── Authentification ─────────────────────────────────────────────
+  // ── Authentification ──────────────────────────────────────────────────
   {
     path: '/connexion',
     name: 'login',
@@ -33,7 +33,7 @@ const routes = [
     meta: { title: 'Inscription — DéclaTogo', public: true, guestOnly: true },
   },
 
-  // ── Espace citoyen ───────────────────────────────────────────────
+  // ── Espace citoyen ────────────────────────────────────────────────────
   {
     path: '/mes-declarations',
     name: 'mes-declarations',
@@ -64,8 +64,15 @@ const routes = [
     component: () => import('../views/citizen/NotificationsView.vue'),
     meta: { title: 'Notifications — DéclaTogo', requiresAuth: true },
   },
+  // ── NOUVEAU : suivi dossier de remplacement (citoyen) ─────────────────
+  {
+    path: '/remplacement/:id',
+    name: 'remplacement-detail',
+    component: () => import('../views/citizen/RemplacementDetailView.vue'),
+    meta: { title: 'Suivi de remplacement — DéclaTogo', requiresAuth: true },
+  },
 
-  // ── Espace admin / police ────────────────────────────────────────
+  // ── Espace admin / police ─────────────────────────────────────────────
   {
     path: '/admin',
     name: 'dashboard',
@@ -76,36 +83,33 @@ const routes = [
     path: '/admin/declarations',
     name: 'admin-declarations',
     component: () => import('../views/admin/AdminDeclarationsView.vue'),
-    meta: {
-      title: 'Gestion déclarations — DéclaTogo',
-      requiresAuth: true,
-      requiresStaff: true,
-    },
+    meta: { title: 'Gestion déclarations — DéclaTogo', requiresAuth: true, requiresStaff: true },
   },
   {
     path: '/admin/agents',
     name: 'admin-agents',
     component: () => import('../views/admin/ManageAgentsView.vue'),
-    meta: {
-      title: 'Gestion des agents — DéclaTogo',
-      requiresAuth: true,
-      requiresAdmin: true,
-    },
+    meta: { title: 'Gestion des agents — DéclaTogo', requiresAuth: true, requiresAdmin: true },
   },
-
-  // ── Gestion utilisateurs — ADMIN UNIQUEMENT ──────────────────────
   {
     path: '/admin/utilisateurs',
     name: 'admin-users',
     component: () => import('../views/admin/ManageUsersView.vue'),
+    meta: { title: 'Gestion des utilisateurs — DéclaTogo', requiresAuth: true, requiresAdmin: true },
+  },
+  // ── NOUVEAU : gestion des dossiers de remplacement (agent/admin) ───────
+  {
+    path: '/admin/remplacements',
+    name: 'admin-remplacements',
+    component: () => import('../views/admin/ManageRemplacementsView.vue'),
     meta: {
-      title: 'Gestion des utilisateurs — DéclaTogo',
+      title: 'Dossiers de remplacement — DéclaTogo',
       requiresAuth: true,
-      requiresAdmin: true,
+      requiresStaff: true,
     },
   },
 
-  // ── 404 ──────────────────────────────────────────────────────────
+  // ── 404 ───────────────────────────────────────────────────────────────
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
@@ -137,17 +141,12 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.guestOnly && authStore.isAuthenticated) {
     return next({ name: 'home' })
   }
-
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return next({ name: 'login', query: { redirect: to.fullPath } })
   }
-
-  // Route réservée aux admins uniquement
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
     return next({ name: 'dashboard' })
   }
-
-  // Route réservée au staff (admin + police)
   if (to.meta.requiresStaff && !authStore.isStaff) {
     return next({ name: 'mes-declarations' })
   }

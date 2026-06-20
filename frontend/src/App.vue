@@ -3,13 +3,14 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from './stores/auth'
-import { notificationsAPI } from './services/api'
+import { notificationsAPI, adminRemplacementsAPI } from './services/api'
 
-const route       = useRoute()
+const route        = useRoute()
 const { t, locale } = useI18n()
-const authStore   = useAuthStore()
-const mobileOpen  = ref(false)
-const unreadCount = ref(0)
+const authStore    = useAuthStore()
+const mobileOpen   = ref(false)
+const unreadCount  = ref(0)
+const remplacementsBadge = ref(0)   // ← badge dossiers en attente
 
 const toggleLang = () => {
   locale.value = locale.value === 'fr' ? 'en' : 'fr'
@@ -17,10 +18,12 @@ const toggleLang = () => {
 
 const handleLogout = () => {
   authStore.logout()
-  mobileOpen.value  = false
-  unreadCount.value = 0
+  mobileOpen.value      = false
+  unreadCount.value     = 0
+  remplacementsBadge.value = 0
 }
 
+// ── Notifications non lues ─────────────────────────────────────────────────
 const fetchUnread = async () => {
   if (!authStore.isAuthenticated) return
   try {
@@ -29,16 +32,31 @@ const fetchUnread = async () => {
   } catch { unreadCount.value = 0 }
 }
 
-// Rafraîchit le badge à chaque changement de page
+// ── Badge remplacements en attente (staff seulement) ──────────────────────
+const fetchRemplacementsBadge = async () => {
+  if (!authStore.isStaff) return
+  try {
+    const { data } = await adminRemplacementsAPI.list({ statut: 'EN_ATTENTE' })
+    remplacementsBadge.value = (data.results ?? data).length
+  } catch { remplacementsBadge.value = 0 }
+}
+
+// Rafraîchit les badges à chaque changement de page
 watch(route, () => {
   mobileOpen.value = false
   fetchUnread()
+  fetchRemplacementsBadge()
 })
 
-// Charge le badge dès que l'utilisateur est connecté
+// Charge les badges dès que l'utilisateur est connecté
 watch(() => authStore.isAuthenticated, (auth) => {
-  if (auth) fetchUnread()
-  else unreadCount.value = 0
+  if (auth) {
+    fetchUnread()
+    fetchRemplacementsBadge()
+  } else {
+    unreadCount.value        = 0
+    remplacementsBadge.value = 0
+  }
 }, { immediate: true })
 </script>
 
@@ -58,8 +76,19 @@ watch(() => authStore.isAuthenticated, (auth) => {
     <router-link :to="{ name: 'home' }"
       class="flex items-center gap-3 text-white font-serif text-xl font-bold no-underline">
       <div class="w-9 h-9 bg-or rounded-lg flex items-center justify-center text-vert font-bold text-sm">
-        DT
+        TG
       </div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" class="w-7 h-5 rounded-sm shadow-sm flex-shrink-0">
+        <rect width="900" height="600" fill="#006A4E"/>
+        <rect width="900" height="120" y="0"   fill="#006A4E"/>
+        <rect width="900" height="120" y="120" fill="#FFCE00"/>
+        <rect width="900" height="120" y="240" fill="#006A4E"/>
+        <rect width="900" height="120" y="360" fill="#FFCE00"/>
+        <rect width="900" height="120" y="480" fill="#006A4E"/>
+        <rect width="300" height="600" fill="#D21034"/>
+        <polygon points="150,100 179,191 271,191 198,246 224,337 150,282 76,337 102,246 29,191 121,191"
+                 fill="#FFCE00"/>
+      </svg>
       Décla<span class="text-or">Togo</span>
     </router-link>
 
@@ -77,12 +106,12 @@ watch(() => authStore.isAuthenticated, (auth) => {
           {{ t('nav.declare') }}
         </router-link>
 
-        <!-- ── MES DÉCLARATIONS ── -->
+        <!-- Mes déclarations -->
         <router-link :to="{ name: 'mes-declarations' }" class="nav-desktop-link">
           📋 Mes déclarations
         </router-link>
 
-        <!-- ── NOTIFICATIONS (avec badge) ── -->
+        <!-- Notifications -->
         <router-link :to="{ name: 'notifications' }" class="nav-desktop-link relative">
           🔔 Notifications
           <span v-if="unreadCount > 0"
@@ -96,6 +125,19 @@ watch(() => authStore.isAuthenticated, (auth) => {
         <!-- Tableau de bord admin/police -->
         <router-link v-if="authStore.isStaff" :to="{ name: 'dashboard' }" class="nav-desktop-link">
           {{ t('nav.dashboard') }}
+        </router-link>
+
+        <!-- ── Remplacements (staff) ── -->
+        <router-link v-if="authStore.isStaff"
+          :to="{ name: 'admin-remplacements' }"
+          class="nav-desktop-link relative">
+          🔄 Remplacements
+          <span v-if="remplacementsBadge > 0"
+            class="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-[#7C3AED] text-white
+                   text-[10px] font-bold rounded-full flex items-center justify-center
+                   px-1 leading-none shadow">
+            {{ remplacementsBadge > 99 ? '99+' : remplacementsBadge }}
+          </span>
         </router-link>
 
       </template>
@@ -133,6 +175,23 @@ watch(() => authStore.isAuthenticated, (auth) => {
       class="md:hidden fixed top-[108px] inset-x-0 z-40 bg-vert/98 backdrop-blur
              border-b border-or/30 flex flex-col gap-1 px-4 py-4">
 
+      <!-- Logo mobile dans le menu -->
+      <div class="flex items-center gap-2 px-4 pb-3 mb-1 border-b border-white/10">
+        <div class="w-8 h-8 bg-or rounded-lg flex items-center justify-center text-vert font-bold text-xs">TG</div>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" class="w-7 h-5 rounded-sm shadow-sm flex-shrink-0">
+          <rect width="900" height="600" fill="#006A4E"/>
+          <rect width="900" height="120" y="0"   fill="#006A4E"/>
+          <rect width="900" height="120" y="120" fill="#FFCE00"/>
+          <rect width="900" height="120" y="240" fill="#006A4E"/>
+          <rect width="900" height="120" y="360" fill="#FFCE00"/>
+          <rect width="900" height="120" y="480" fill="#006A4E"/>
+          <rect width="300" height="600" fill="#D21034"/>
+          <polygon points="150,100 179,191 271,191 198,246 224,337 150,282 76,337 102,246 29,191 121,191"
+                   fill="#FFCE00"/>
+        </svg>
+        <span class="font-serif text-lg font-bold text-white">Décla<span class="text-or">Togo</span></span>
+      </div>
+
       <router-link :to="{ name: 'home' }"   class="nav-mobile-link">{{ t('nav.home') }}</router-link>
       <router-link :to="{ name: 'search' }" class="nav-mobile-link">{{ t('nav.search') }}</router-link>
 
@@ -142,12 +201,12 @@ watch(() => authStore.isAuthenticated, (auth) => {
           {{ t('nav.declare') }}
         </router-link>
 
-        <!-- ── MES DÉCLARATIONS (mobile) ── -->
+        <!-- Mes déclarations (mobile) -->
         <router-link :to="{ name: 'mes-declarations' }" class="nav-mobile-link">
           📋 Mes déclarations
         </router-link>
 
-        <!-- ── NOTIFICATIONS (mobile, avec badge) ── -->
+        <!-- Notifications (mobile) -->
         <router-link :to="{ name: 'notifications' }"
           class="nav-mobile-link flex items-center justify-between">
           <span>🔔 Notifications</span>
@@ -158,8 +217,21 @@ watch(() => authStore.isAuthenticated, (auth) => {
           </span>
         </router-link>
 
+        <!-- Dashboard (mobile) -->
         <router-link v-if="authStore.isStaff" :to="{ name: 'dashboard' }" class="nav-mobile-link">
           {{ t('nav.dashboard') }}
+        </router-link>
+
+        <!-- ── Remplacements (mobile, staff) ── -->
+        <router-link v-if="authStore.isStaff"
+          :to="{ name: 'admin-remplacements' }"
+          class="nav-mobile-link flex items-center justify-between">
+          <span>🔄 Remplacements</span>
+          <span v-if="remplacementsBadge > 0"
+            class="min-w-[20px] h-5 bg-[#7C3AED] text-white text-[10px] font-bold
+                   rounded-full flex items-center justify-center px-1.5 leading-none">
+            {{ remplacementsBadge > 99 ? '99+' : remplacementsBadge }}
+          </span>
         </router-link>
 
         <div class="my-1 border-t border-white/10"></div>
@@ -194,7 +266,6 @@ watch(() => authStore.isAuthenticated, (auth) => {
   @apply relative text-white/80 hover:text-white hover:bg-white/10
          px-3 py-2 rounded-lg text-sm font-medium transition-all no-underline;
 }
-/* Lien actif */
 .router-link-active.nav-desktop-link {
   @apply text-white bg-white/15;
 }

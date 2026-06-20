@@ -1,5 +1,5 @@
 """
-URLs de l'application declarations
+URLs de l'application declarations — VERSION AVEC WORKFLOW DE REMPLACEMENT
 """
 
 from django.urls import path, include
@@ -7,16 +7,19 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     RegisterView, UserProfileView,
     AgentManagementView, AgentDetailView,
-    UserManagementView, UserDetailAdminView,   # ← NOUVEAU
+    UserManagementView, UserDetailAdminView,
     CategoriePieceViewSet, DeclarationViewSet,
-    NotificationViewSet, StatistiquesView
+    NotificationViewSet, StatistiquesView,
+    DemandeRemplacementViewSet,
+    AdminDemandeRemplacementListView, AdminDemandeRemplacementDetailView,
+    ChangePasswordView,
 )
-from .views import ChangePasswordView
 
 router = DefaultRouter()
-router.register(r'categories',    CategoriePieceViewSet, basename='categorie')
-router.register(r'declarations',  DeclarationViewSet,    basename='declaration')
-router.register(r'notifications', NotificationViewSet,   basename='notification')
+router.register(r'categories',       CategoriePieceViewSet,        basename='categorie')
+router.register(r'declarations',     DeclarationViewSet,           basename='declaration')
+router.register(r'notifications',    NotificationViewSet,          basename='notification')
+router.register(r'remplacements',    DemandeRemplacementViewSet,   basename='remplacement')
 
 urlpatterns = [
     # Auth & profil
@@ -26,13 +29,19 @@ urlpatterns = [
     # Statistiques
     path('statistiques/', StatistiquesView.as_view(), name='statistiques'),
 
-    # ── Gestion agents (admin) ───────────────────────────────────────
+    # ── Gestion agents (admin) ───────────────────────────────────────────────
     path('admin/agents/',          AgentManagementView.as_view(), name='agent-list'),
     path('admin/agents/<int:pk>/', AgentDetailView.as_view(),     name='agent-detail'),
 
-    # ── Gestion utilisateurs (admin) — NOUVEAU ───────────────────────
+    # ── Gestion utilisateurs (admin) ─────────────────────────────────────────
     path('admin/users/',           UserManagementView.as_view(),  name='user-list'),
     path('admin/users/<int:pk>/',  UserDetailAdminView.as_view(), name='user-detail'),
+
+    # ── Dossiers de remplacement (agent/admin) ───────────────────────────────
+    path('admin/remplacements/',
+         AdminDemandeRemplacementListView.as_view(),   name='admin-remplacement-list'),
+    path('admin/remplacements/<int:pk>/',
+         AdminDemandeRemplacementDetailView.as_view(), name='admin-remplacement-detail'),
 
     # Routes auto (router)
     path('', include(router.urls)),

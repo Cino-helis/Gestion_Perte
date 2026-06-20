@@ -39,6 +39,7 @@ INSTALLED_APPS = [
 
 ]
 
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -82,7 +83,12 @@ DATABASES = {
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            'init_command': (
+                "SET sql_mode='STRICT_TRANS_TABLES';"
+                "SET GLOBAL innodb_large_prefix=1;"
+                "SET GLOBAL innodb_file_format=Barracuda;"
+                "SET GLOBAL innodb_file_per_table=1;"
+            ),
         }
     }
 }

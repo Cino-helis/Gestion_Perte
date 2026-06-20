@@ -1,30 +1,46 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { declarationsAPI } from '../../services/api'
+import { declarationsAPI, remplacementsAPI } from '../../services/api'
 import { useAuthStore } from '../../stores/auth'
 
 const router    = useRouter()
 const authStore = useAuthStore()
 
 /* ══ État ══ */
-const declarations = ref([])
-const loading      = ref(true)
-const apiError     = ref(null)
-const filterType   = ref('ALL')    // ALL | PERTE | TROUVAILLE
-const filterStatut = ref('ALL')
-const downloading  = ref(null)     // id en cours de download
+const declarations  = ref([])
+const remplacements = ref([])   // ← index des dossiers de remplacement du citoyen
+const loading       = ref(true)
+const apiError      = ref(null)
+const filterType    = ref('ALL')
+const filterStatut  = ref('ALL')
+const downloading   = ref(null)
 
 /* ══ Chargement ══ */
 onMounted(async () => {
   try {
-    const { data } = await declarationsAPI.myDeclarations()
-    declarations.value = data.results ?? data
+    const [declRes, replRes] = await Promise.allSettled([
+      declarationsAPI.myDeclarations(),
+      remplacementsAPI.mesDossiers(),
+    ])
+    if (declRes.status === 'fulfilled') {
+      declarations.value  = declRes.value.data.results ?? declRes.value.data
+    }
+    if (replRes.status === 'fulfilled') {
+      remplacements.value = replRes.value.data.results ?? replRes.value.data
+    }
   } catch (e) {
     apiError.value = 'Impossible de charger vos déclarations.'
   } finally {
     loading.value = false
   }
+})
+
+/* ══ Index des remplacements par déclaration.id ══ */
+const remplacementsIndex = computed(() => {
+  const idx = {}
+  remplacements.value.forEach(r => { idx[r.declaration] = r })
+  return idx
 })
 
 /* ══ Filtrage ══ */
@@ -41,11 +57,12 @@ const filtered = computed(() => {
 const stats = computed(() => {
   const d = declarations.value
   return {
-    total:     d.length,
-    pertes:    d.filter(x => x.type_declaration === 'PERTE').length,
-    attente:   d.filter(x => x.statut === 'EN_ATTENTE').length,
-    retrouve:  d.filter(x => x.statut === 'RETROUVE').length,
-    restitue:  d.filter(x => x.statut === 'RESTITUE').length,
+    total:          d.length,
+    pertes:         d.filter(x => x.type_declaration === 'PERTE').length,
+    attente:        d.filter(x => x.statut === 'EN_ATTENTE').length,
+    retrouve:       d.filter(x => x.statut === 'RETROUVE').length,
+    restitue:       d.filter(x => x.statut === 'RESTITUE').length,
+    remplacement:   d.filter(x => x.statut === 'REMPLACEMENT').length,
   }
 })
 
@@ -69,14 +86,25 @@ const downloadPDF = async (decl) => {
 
 /* ══ Helpers ══ */
 const statusConfig = {
-  EN_ATTENTE: { label: 'En attente',  color: '#D97706', bg: '#FEF3C7', icon: '⏳' },
-  VALIDE:     { label: 'Validé',      color: '#2563EB', bg: '#DBEAFE', icon: '✅' },
-  RETROUVE:   { label: 'Retrouvé',    color: '#059669', bg: '#D1FAE5', icon: '🎉' },
-  RESTITUE:   { label: 'Restitué',    color: '#065F46', bg: '#A7F3D0', icon: '🤝' },
-  REJETE:     { label: 'Rejeté',      color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
-  CLOTURE:    { label: 'Clôturé',     color: '#6B7280', bg: '#F3F4F6', icon: '🔒' },
+  EN_ATTENTE:    { label: 'En attente',      color: '#D97706', bg: '#FEF3C7', icon: '⏳' },
+  VALIDE:        { label: 'Validé',           color: '#2563EB', bg: '#DBEAFE', icon: '✅' },
+  RETROUVE:      { label: 'Retrouvé',         color: '#059669', bg: '#D1FAE5', icon: '🎉' },
+  RESTITUE:      { label: 'Restitué',         color: '#065F46', bg: '#A7F3D0', icon: '🤝' },
+  REJETE:        { label: 'Rejeté',           color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
+  CLOTURE:       { label: 'Clôturé',          color: '#6B7280', bg: '#F3F4F6', icon: '🔒' },
+  REMPLACEMENT:  { label: 'En remplacement',  color: '#7C3AED', bg: '#EDE9FE', icon: '🔄' },
 }
 const getStatus = (s) => statusConfig[s] || statusConfig.EN_ATTENTE
+
+const remplacementStatusConfig = {
+  EN_ATTENTE:     { label: 'Dossier en attente',      color: '#D97706', bg: '#FEF3C7', icon: '📂' },
+  RECEPISSE_EMIS: { label: 'Autorisation disponible', color: '#2563EB', bg: '#DBEAFE', icon: '📄' },
+  EN_TRAITEMENT:  { label: 'En traitement',            color: '#7C3AED', bg: '#EDE9FE', icon: '⚙️' },
+  DOCUMENT_PRET:  { label: '🎉 Pièce prête !',         color: '#059669', bg: '#D1FAE5', icon: '🎉' },
+  RETIRE:         { label: 'Retiré',                  color: '#065F46', bg: '#A7F3D0', icon: '✅' },
+  ANNULE:         { label: 'Annulé',                  color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
+}
+const getRemplStatut = (s) => remplacementStatusConfig[s] || remplacementStatusConfig.EN_ATTENTE
 
 const formatDate = (d) => d
   ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -112,7 +140,7 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
   </div>
 
   <!-- ══ Statistiques ══ -->
-  <div v-if="!loading" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+  <div v-if="!loading" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
     <div class="bg-white rounded-xl p-4 shadow-card border border-gray-100 text-center">
       <div class="font-serif text-2xl font-bold text-[#005A3C]">{{ stats.total }}</div>
       <div class="text-xs text-gray-500 mt-0.5">Total</div>
@@ -129,11 +157,17 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
       <div class="font-serif text-2xl font-bold text-emerald-700">{{ stats.restitue }}</div>
       <div class="text-xs text-gray-500 mt-0.5">Restituées</div>
     </div>
+    <!-- ── NOUVEAU : compteur remplacement ── -->
+    <div class="bg-white rounded-xl p-4 shadow-card border border-[#7C3AED]/20 text-center relative overflow-hidden">
+      <div class="absolute inset-x-0 top-0 h-0.5 bg-[#7C3AED]"></div>
+      <div class="font-serif text-2xl font-bold text-[#7C3AED]">{{ stats.remplacement }}</div>
+      <div class="text-xs text-gray-500 mt-0.5">🔄 Remplacement</div>
+    </div>
   </div>
 
   <!-- Squelettes stats -->
-  <div v-else class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-    <div v-for="i in 4" :key="i" class="skeleton h-20 rounded-xl"></div>
+  <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
+    <div v-for="i in 5" :key="i" class="skeleton h-20 rounded-xl"></div>
   </div>
 
   <!-- ══ Erreur ══ -->
@@ -145,12 +179,11 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
 
   <!-- ══ Filtres ══ -->
   <div class="flex items-center gap-2 mb-5 flex-wrap">
-    <!-- Type -->
     <div class="flex items-center gap-1 bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
       <button v-for="opt in [
-        { key: 'ALL',       label: 'Tous'        },
-        { key: 'PERTE',     label: '😟 Pertes'   },
-        { key: 'TROUVAILLE',label: '🤲 Trouvailles'},
+        { key: 'ALL',        label: 'Tous'           },
+        { key: 'PERTE',      label: '😟 Pertes'      },
+        { key: 'TROUVAILLE', label: '🤲 Trouvailles' },
       ]" :key="opt.key"
         @click="filterType = opt.key"
         :class="[
@@ -163,7 +196,6 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
       </button>
     </div>
 
-    <!-- Statut -->
     <select v-model="filterStatut"
       class="bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs
              text-gray-600 outline-none cursor-pointer shadow-sm">
@@ -188,9 +220,7 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
     class="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-card">
     <div class="text-5xl mb-4">📂</div>
     <p class="font-serif text-lg font-bold text-[#1A2E22] mb-2">Aucune déclaration</p>
-    <p class="text-sm text-gray-500 mb-6">
-      Vous n'avez pas encore fait de déclaration.
-    </p>
+    <p class="text-sm text-gray-500 mb-6">Vous n'avez pas encore fait de déclaration.</p>
     <router-link :to="{ name: 'declare' }"
       class="inline-flex items-center gap-2 bg-[#005A3C] text-white font-bold
              text-sm px-6 py-3 rounded-xl no-underline hover:bg-[#007A52] transition-all">
@@ -215,6 +245,10 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
       <div v-for="decl in filtered" :key="decl.id"
         class="bg-white rounded-2xl border border-gray-100 shadow-card
                hover:shadow-card-lg hover:-translate-y-0.5 transition-all">
+
+        <!-- Bande de statut remplacement en haut -->
+        <div v-if="decl.statut === 'REMPLACEMENT'"
+          class="h-1 rounded-t-2xl bg-[#7C3AED]"></div>
 
         <div class="p-5 flex flex-col sm:flex-row items-start gap-4">
 
@@ -254,17 +288,52 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
               <span class="font-mono text-[10px] text-gray-300">{{ decl.numero_recepisse }}</span>
             </div>
 
-            <!-- Alerte match -->
+            <!-- ── Alerte match ── -->
             <div v-if="decl.statut === 'RETROUVE'"
               class="mt-2 inline-flex items-center gap-1.5 bg-green-50 text-green-700
                      text-xs font-semibold px-3 py-1.5 rounded-lg">
               🎉 Correspondance trouvée — Voir les détails
             </div>
+
+            <!-- ── Bandeau remplacement ── -->
+            <div v-if="decl.statut === 'REMPLACEMENT' && remplacementsIndex[decl.id]"
+              class="mt-2.5 rounded-xl border border-[#7C3AED]/25 overflow-hidden">
+              <div class="bg-[#7C3AED]/8 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm">🔄</span>
+                  <div>
+                    <span class="text-xs font-bold text-[#7C3AED]">
+                      Dossier {{ remplacementsIndex[decl.id].numero_dossier }}
+                    </span>
+                    <span class="mx-2 text-[#7C3AED]/40">·</span>
+                    <span class="badge text-[10px] font-bold"
+                      :style="{
+                        color: getRemplStatut(remplacementsIndex[decl.id].statut).color,
+                        backgroundColor: getRemplStatut(remplacementsIndex[decl.id].statut).bg
+                      }">
+                      {{ getRemplStatut(remplacementsIndex[decl.id].statut).icon }}
+                      {{ getRemplStatut(remplacementsIndex[decl.id].statut).label }}
+                    </span>
+                  </div>
+                </div>
+                <router-link
+                  :to="{ name: 'remplacement-detail', params: { id: remplacementsIndex[decl.id].id } }"
+                  class="text-[10px] font-bold text-[#7C3AED] no-underline
+                         hover:underline flex-shrink-0">
+                  Suivre le dossier →
+                </router-link>
+              </div>
+              <!-- Barre de progression du remplacement -->
+              <div class="h-1 bg-gray-100">
+                <div class="h-full bg-[#7C3AED] transition-all duration-700"
+                  :style="{ width: `${remplacementsIndex[decl.id].progression_pct}%` }">
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Actions -->
           <div class="flex items-center gap-2 flex-shrink-0 sm:self-center">
-            <!-- Télécharger PDF -->
             <button @click="downloadPDF(decl)"
               :disabled="downloading === decl.id"
               class="flex items-center gap-1.5 text-xs font-semibold
@@ -275,7 +344,6 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
               <span v-else>📄</span>
               PDF
             </button>
-            <!-- Voir détail -->
             <button @click="router.push({ name: 'declaration-detail', params: { id: decl.id } })"
               class="flex items-center gap-1.5 text-xs font-semibold
                      text-gray-600 bg-gray-100 hover:bg-gray-200
@@ -286,7 +354,7 @@ const statuts = Object.entries(statusConfig).map(([k, v]) => ({ key: k, ...v }))
 
         </div>
 
-        <!-- Barre de statut en bas de carte (couleur) -->
+        <!-- Barre de statut en bas -->
         <div class="h-0.5 rounded-b-2xl transition-all"
           :style="{ backgroundColor: getStatus(decl.statut).color, opacity: 0.4 }">
         </div>

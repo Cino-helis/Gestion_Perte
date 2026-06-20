@@ -13,8 +13,9 @@ class DeclarationsConfig(AppConfig):
     verbose_name = 'Gestion des Déclarations'
 
     def ready(self):
-        """
-        Appelé une seule fois au démarrage de Django.
-        L'import de signals.py enregistre les @receiver auprès du dispatcher.
-        """
         import declarations.signals  # noqa: F401
+
+        import os
+        if os.environ.get('RUN_MAIN') != 'true':
+            from declarations.scheduler import start
+            start()

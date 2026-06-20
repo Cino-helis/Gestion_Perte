@@ -1,0 +1,23 @@
+{
+  "output": {
+    "filePath": "repomix-output.md",
+    "style": "markdown"
+  },
+  "ignore": {
+    "customPatterns": [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.nuxt/**",
+      "**/.vuepress/.temp/**",
+      "**/venv/**",
+      "**/.venv/**",
+      "**/env/**",
+      "**/*.pyc",
+      "**/__pycache__/**",
+      "**/db.sqlite3",
+      "**/.git/**",
+      "**/package-lock.json",
+      "**/yarn.lock"
+    ]
+  }
+}

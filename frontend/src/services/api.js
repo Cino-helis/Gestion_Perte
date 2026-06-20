@@ -1,5 +1,6 @@
 /**
  * Client HTTP Axios — DéclaTogo
+ * VERSION AVEC WORKFLOW DE REMPLACEMENT
  */
 
 import axios from 'axios'
@@ -11,7 +12,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
 })
 
-// ── Intercepteur REQUEST ──────────────────────────────────────────
+// ── Intercepteur REQUEST ──────────────────────────────────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token')
@@ -21,7 +22,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
-// ── Intercepteur RESPONSE — refresh JWT ──────────────────────────
+// ── Intercepteur RESPONSE — refresh JWT ──────────────────────────────────
 let isRefreshing = false
 let failedQueue  = []
 
@@ -40,8 +41,8 @@ api.interceptors.response.use(
           .then((token) => { orig.headers.Authorization = `Bearer ${token}`; return api(orig) })
           .catch((err) => Promise.reject(err))
       }
-      orig._retry   = true
-      isRefreshing  = true
+      orig._retry  = true
+      isRefreshing = true
       const refresh = localStorage.getItem('refresh_token')
       if (!refresh) { _logout(); return Promise.reject(error) }
       try {
@@ -69,9 +70,9 @@ function _logout() {
   router.push({ name: 'login' })
 }
 
-// ═════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 // Endpoints
-// ═════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 
 export const authAPI = {
   login:         (d) => api.post('token/', d),
@@ -82,20 +83,19 @@ export const authAPI = {
 }
 
 export const declarationsAPI = {
-  list:          (params)   => api.get('declarations/', { params }),
-  detail:        (id)       => api.get(`declarations/${id}/`),
-  create:        (data)     => api.post('declarations/', data, {
+  list:           (params)   => api.get('declarations/', { params }),
+  detail:         (id)       => api.get(`declarations/${id}/`),
+  create:         (data)     => api.post('declarations/', data, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
-  update:        (id, data) => api.patch(`declarations/${id}/`, data),
-  /** Suppression définitive — admin uniquement */
-  delete:        (id)       => api.delete(`declarations/${id}/`),
-  myDeclarations:()         => api.get('declarations/mes_declarations/'),
-  pertes:        ()         => api.get('declarations/pertes/'),
-  trouvailles:   ()         => api.get('declarations/trouvailles/'),
-  rechercher:    (data)     => api.post('declarations/rechercher/', data),
-  changerStatut: (id, data) => api.patch(`declarations/${id}/changer_statut/`, data),
-  downloadPDF:   (id)       => api.get(`declarations/${id}/telecharger_recepisse/`, {
+  update:         (id, data) => api.patch(`declarations/${id}/`, data),
+  delete:         (id)       => api.delete(`declarations/${id}/`),
+  myDeclarations: ()         => api.get('declarations/mes_declarations/'),
+  pertes:         ()         => api.get('declarations/pertes/'),
+  trouvailles:    ()         => api.get('declarations/trouvailles/'),
+  rechercher:     (data)     => api.post('declarations/rechercher/', data),
+  changerStatut:  (id, data) => api.patch(`declarations/${id}/changer_statut/`, data),
+  downloadPDF:    (id)       => api.get(`declarations/${id}/telecharger_recepisse/`, {
     responseType: 'blob',
   }),
 }
@@ -116,7 +116,7 @@ export const statsAPI = {
   get: () => api.get('statistiques/'),
 }
 
-// ── Gestion agents (admin) ────────────────────────────────────────
+// ── Gestion agents (admin) ────────────────────────────────────────────────
 export const agentsAPI = {
   list:   ()         => api.get('admin/agents/'),
   create: (data)     => api.post('admin/agents/', data),
@@ -124,16 +124,34 @@ export const agentsAPI = {
   delete: (id)       => api.delete(`admin/agents/${id}/`),
 }
 
-// ── Gestion utilisateurs (admin) — NOUVEAU ───────────────────────
+// ── Gestion utilisateurs (admin) ─────────────────────────────────────────
 export const usersAPI = {
-  /** Liste tous les utilisateurs (filtres : role, search) */
   list:   (params)   => api.get('admin/users/', { params }),
-  /** Détail d'un utilisateur */
   detail: (id)       => api.get(`admin/users/${id}/`),
-  /** Modifier (is_active, …) */
   update: (id, data) => api.patch(`admin/users/${id}/`, data),
-  /** Suppression DÉFINITIVE */
   delete: (id)       => api.delete(`admin/users/${id}/`),
+}
+
+// ── Workflow de remplacement — citoyen ───────────────────────────────────
+export const remplacementsAPI = {
+  /** Mes dossiers de remplacement (citoyen) */
+  mesDossiers: ()   => api.get('remplacements/'),
+  /** Détail d'un dossier */
+  detail:      (id) => api.get(`remplacements/${id}/`),
+  /** Télécharger l'autorisation PDF */
+  downloadAutorisation: (id) => api.get(`remplacements/${id}/telecharger_autorisation/`, {
+    responseType: 'blob',
+  }),
+}
+
+// ── Workflow de remplacement — agent/admin ───────────────────────────────
+export const adminRemplacementsAPI = {
+  /** Liste tous les dossiers avec filtres : ?statut=EN_ATTENTE&search=... */
+  list:          (params)   => api.get('admin/remplacements/', { params }),
+  /** Détail d'un dossier */
+  detail:        (id)       => api.get(`admin/remplacements/${id}/`),
+  /** Changer statut + infos commissariat */
+  changerStatut: (id, data) => api.patch(`admin/remplacements/${id}/`, data),
 }
 
 export default api
